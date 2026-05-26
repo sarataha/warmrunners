@@ -11,8 +11,9 @@ ahead of time, based on a schedule and a queue-depth rule.
 
 **Pre-implementation — design phase, May 2026.**
 
-The v1 design is in
-[`docs/superpowers/specs/2026-05-27-warmrunners-design.md`](docs/superpowers/specs/2026-05-27-warmrunners-design.md).
+- Design: [`docs/superpowers/specs/2026-05-27-warmrunners-design.md`](docs/superpowers/specs/2026-05-27-warmrunners-design.md)
+- Implementation plan: [`docs/superpowers/plans/2026-05-27-warmrunners-v1.md`](docs/superpowers/plans/2026-05-27-warmrunners-v1.md)
+
 Code starts next. No installable release yet.
 
 ## Roadmap
