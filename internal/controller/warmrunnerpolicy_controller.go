@@ -145,6 +145,22 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	pol.Status.LastReconcileTime = &now
 	_ = r.Status().Update(ctx, &pol)
 
+	applied := dec.DesiredFloor
+	if demErr != nil || setErr != nil {
+		applied = current
+	}
+	labels := []string{pol.Name, pol.Spec.Target.Kind()}
+	desiredFloor.WithLabelValues(labels...).Set(float64(dec.DesiredFloor))
+	appliedFloor.WithLabelValues(labels...).Set(float64(applied))
+	queueDepth.WithLabelValues(pol.Name).Set(float64(snap.Queued))
+	if demErr == nil && setErr == nil {
+		if dec.DesiredFloor > current {
+			floorChanges.WithLabelValues(pol.Name, "up").Inc()
+		} else if dec.DesiredFloor < current {
+			floorChanges.WithLabelValues(pol.Name, "down").Inc()
+		}
+	}
+
 	return ctrl.Result{RequeueAfter: pol.Spec.QueueRule.PollInterval.Duration}, nil
 }
 
