@@ -1,0 +1,6 @@
+apiVersion: v2
+name: warmrunners
+description: Predictive warm-floor controller for self-hosted GitHub Actions runners (ARC + GARM)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,58 @@
+{{- if .Values.rbac.enable }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+  name: warmrunners-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - actions.github.com
+  resources:
+  - autoscalingrunnersets
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - garm-operator.mercedes-benz.com
+  resources:
+  - pools
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - warmrunners.warmrunners.io
+  resources:
+  - warmrunnerpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - warmrunners.warmrunners.io
+  resources:
+  - warmrunnerpolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - warmrunners.warmrunners.io
+  resources:
+  - warmrunnerpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+{{- end -}}

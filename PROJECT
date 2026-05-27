@@ -6,6 +6,8 @@ cliVersion: 4.9.0
 domain: warmrunners.io
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  helm.kubebuilder.io/v1-alpha: {}
 projectName: warmrunners
 repo: github.com/sarataha/warmrunners
 resources:
