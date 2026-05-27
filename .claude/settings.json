@@ -1,6 +1,20 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_comment": "Project hooks. Runs after every Edit/Write to keep Go files tidy. gofmt is fast (<50ms) so we run it inline; go vet runs at task commit time via the plan, not here.",
+  "_comment": "Project hooks + allowlist for the Go/kubebuilder dev loop. gofmt runs on every Go edit; go/make build+test commands are allow-listed so the TDD loop doesn't prompt.",
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go version)",
+      "Bash(go mod:*)",
+      "Bash(go run:*)",
+      "Bash(gofmt:*)",
+      "Bash(make:*)",
+      "Bash(kubebuilder:*)",
+      "Bash(controller-gen:*)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
