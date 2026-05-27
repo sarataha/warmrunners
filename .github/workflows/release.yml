@@ -9,6 +9,7 @@ on:
 permissions:
   contents: write # create the GitHub release
   packages: write # push image + chart to GHCR
+  id-token: write # cosign keyless signing via OIDC
 
 jobs:
   release:
@@ -39,19 +40,51 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
       - name: Build and push multi-arch image
         run: |
           make docker-buildx \
             IMG=ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
             PLATFORMS=linux/amd64,linux/arm64
 
+      # The image is built via `make docker-buildx` (docker buildx build --push),
+      # not docker/build-push-action, so there is no native `digest` output.
+      # Resolve the pushed multi-arch index digest from the registry by tag and
+      # expose it as steps.build.outputs.digest for cosign / SBOM steps below.
+      - name: Resolve image digest
+        id: build
+        run: |
+          digest=$(docker buildx imagetools inspect \
+            "ghcr.io/${{ github.repository }}:${{ github.ref_name }}" \
+            --format '{{.Manifest.Digest}}')
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign container image
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
       - name: Package and push Helm chart (OCI)
+        id: helm
         run: |
           # Pin the chart to this release's image tag and versions.
           sed -i "s|tag: latest|tag: ${{ github.ref_name }}|" dist/chart/values.yaml
           sed -i "s|^version:.*|version: ${{ steps.v.outputs.version }}|; s|^appVersion:.*|appVersion: \"${{ steps.v.outputs.version }}\"|" dist/chart/Chart.yaml
           helm package dist/chart --destination /tmp/chart
-          helm push /tmp/chart/warmrunners-${{ steps.v.outputs.version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+          # helm push prints `Digest: sha256:...` to stderr; capture it for cosign.
+          push_out=$(helm push /tmp/chart/warmrunners-${{ steps.v.outputs.version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts 2>&1)
+          echo "${push_out}"
+          digest=$(echo "${push_out}" | sed -n 's/^Digest: //p')
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign Helm chart
+        env:
+          CHART_REF: ghcr.io/${{ github.repository_owner }}/charts/warmrunners
+          DIGEST: ${{ steps.helm.outputs.digest }}
+        run: cosign sign --yes "${CHART_REF}@${DIGEST}"
 
       - name: Generate install manifest
         run: make build-installer IMG=ghcr.io/${{ github.repository }}:${{ github.ref_name }}
@@ -65,3 +98,23 @@ jobs:
             --title "${{ github.ref_name }}" \
             --generate-notes \
             --notes-file .github/release-notes-header.md
+
+      # SBOM is generated after the release exists so upload-release-assets can
+      # attach the SPDX-JSON file to this tag's release.
+      - name: Generate SBOM (SPDX-JSON)
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: warmrunners-${{ github.ref_name }}.spdx.json
+          upload-release-assets: true
+
+      - name: Attest SBOM to image
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate warmrunners-${{ github.ref_name }}.spdx.json \
+            --type spdxjson \
+            "${IMAGE}@${DIGEST}"
