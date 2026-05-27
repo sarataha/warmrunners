@@ -2,6 +2,7 @@ name: Tests
 
 on:
   push:
+    branches: [main]
     paths-ignore: ['**.md', 'docs/**', '.claude/**']
   pull_request:
     paths-ignore: ['**.md', 'docs/**', '.claude/**']
@@ -25,7 +26,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.25"
+          check-latest: true
           cache: true
 
       - name: Running Tests
