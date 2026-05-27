@@ -19,7 +19,7 @@ v1 is heuristic: clock + queue-depth headroom. Forecasting from historical data 
 - Not a replacement for ARC or GARM — it sits on top of them.
 - No webhook receiver in v1 (REST polling only).
 - No codebase-aware mapping in v1 (no parsing of `.github/workflows/*` to infer paths→label
-  mapping — that is v1.5).
+  mapping — that is v0.2.0).
 - No machine learning in v1.
 - No runner deletion. The controller only adjusts the warm-floor; backends drain naturally.
 
@@ -132,7 +132,7 @@ target:
 ```
 
 Multiple policies can target different pools. Conflicting policies on the *same* backend CR are
-not guarded in v1.0 (last writer wins); see §6.
+not guarded in v0.1.0 (last writer wins); see §6.
 
 ## 4. Reconcile flow
 
@@ -156,8 +156,8 @@ Headroom selection: when multiple `queueRule.headroom` tiers match, the **highes
 - **Backend patch failure** — surface `AdapterAvailable=False` condition; the reconcile
   returns an error so controller-runtime requeues with backoff.
 - **Auth missing or invalid** — `DemandSourceAvailable=False`; no patches attempted.
-- **Conflicting policies targeting the same backend CR** — not handled in v1.0 (last writer
-  wins). Planned for v1.1: a validating admission webhook to reject conflicts at apply time.
+- **Conflicting policies targeting the same backend CR** — not handled in v0.1.0 (last writer
+  wins). Planned for v0.3.0: a validating admission webhook to reject conflicts at apply time.
 - **Manual drift** — if a human edits the backend CR's floor field directly between
   reconciles, next reconcile re-applies the desired value. This is documented behavior, not
   a bug.
@@ -223,16 +223,21 @@ warmrunners/
 
 ## 10. Roadmap
 
-- **v1.0** — Both `ArcAdapter` and `GarmAdapter`. `WarmRunnerPolicy` v1alpha1. REST poll
-  `DemandSource`. Clock + queue heuristic `Scheduler`. Prometheus metrics. Helm chart.
-- **v1.1** — Validating admission webhook for cross-policy conflict detection. Additional
+The CRD is `v1alpha1` and the API is not yet stable, so releases stay in the `0.x` line (each
+feature bumps the minor). `v1.0.0` is reserved for when the CRD graduates to `v1` and the API is
+committed-stable — not before. Each feature ships as its own minor release, not bundled.
+
+- **v0.1.0** (shipped) — `ArcAdapter` + `GarmAdapter`, `WarmRunnerPolicy` v1alpha1, REST-poll
+  `DemandSource`, clock + queue-headroom `Scheduler`, Prometheus metrics, Helm chart.
+- **v0.2.0** — Codebase-aware: parse the user's `.github/workflows/*.yml` to discover the
+  paths→`runs-on` label mapping automatically and pre-warm by runner type. The first feature that
+  meaningfully differentiates from a cron + `kubectl patch`. (Prioritized ahead of the webhook —
+  ordered by value, not by sequence.)
+- **v0.3.0** — Validating admission webhook for cross-policy conflict detection; richer
   `queueRule` shapes (e.g. per-label headroom).
-- **v1.5** — Codebase-aware: parse the user's `.github/workflows/*.yml` to discover the
-  paths→`runs-on` label mapping automatically. Pre-warm by runner type based on active PR
-  diffs. No hardcoded service or label names.
-- **v2.0** — Forecasting `Scheduler`: time-series over historical job data, per-window
-  predictions. Webhook receiver as an alternative `DemandSource`. Possible
-  `TerraformAwsAdapter` (philips-labs/terraform-aws-github-runner).
+- **later** — Forecasting `Scheduler`: time-series over historical job data, per-window
+  predictions. Webhook receiver as an alternative `DemandSource`. Possible `TerraformAwsAdapter`.
+- **v1.0.0** — when `WarmRunnerPolicy` graduates `v1alpha1` → `v1` (API stability promise).
 
 ## 11. Open questions deferred to implementation
 

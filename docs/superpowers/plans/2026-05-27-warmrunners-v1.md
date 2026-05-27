@@ -2606,60 +2606,42 @@ git commit -m "feat(deploy): Helm chart skeleton"
 
 ---
 
-### Task 9.4: README update for v1.0
+### Task 9.4: README install instructions
 
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Replace status section**
-
-Update `## Status`:
+- [ ] **Step 1: Set the install section to the published OCI chart**
 
 ```markdown
-## Status
+## Install
 
-**v1.0 — initial release, May 2026.**
+helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners --version 0.1.0
 
-Install (Helm):
-```
-helm repo add warmrunners https://sarataha.github.io/warmrunners
-helm install warmrunners warmrunners/warmrunners
-```
-
-Example policies live in [`examples/`](examples/). Design in
-[`docs/superpowers/specs/2026-05-27-warmrunners-design.md`](docs/superpowers/specs/2026-05-27-warmrunners-design.md).
-```
-
-Add an `## Acknowledgments` section at the end:
-
-```markdown
-## Acknowledgments
-
-Built with Claude Code, spec-driven via the
-[superpowers](https://github.com/obra/superpowers) methodology.
+Then create a Secret with a GitHub token and a WarmRunnerPolicy (see examples/).
 ```
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add README.md
-git commit -m "docs(readme): v1.0 install instructions"
+git commit -m "docs(readme): OCI chart install instructions"
 ```
 
 ---
 
-### Task 9.5: Tag v1.0.0
+### Task 9.5: Tag the release (CRD is v1alpha1 → stay in 0.x)
 
-- [ ] **Step 1: Tag**
+The release workflow (`.github/workflows/release.yml`) publishes the image + OCI chart and cuts the
+GitHub release automatically when a `v*` tag is pushed. Tag the first release as `v0.1.0`, not
+`v1.0.0` — `v1.0.0` is reserved for CRD graduation to `v1`.
+
+- [ ] **Step 1: Tag + push (signed)**
 
 ```bash
-git tag -a v1.0.0 -m "warmrunners v1.0.0 — initial release"
-git push origin v1.0.0
+git tag -s v0.1.0 -m "warmrunners v0.1.0"
+git push origin v0.1.0   # release workflow does the rest
 ```
-
-- [ ] **Step 2: GitHub Release**
-
-Use `gh release create v1.0.0 --generate-notes`.
 
 ---
 
@@ -2677,7 +2659,7 @@ Use `gh release create v1.0.0 --generate-notes`.
   - Examples / Helm / CI / README / release → Phase 9
 - [x] **No placeholders** — every TDD task carries real Go code; every command is exact.
 - [x] **Type consistency** — `Demand`, `Snapshot`, `Decision`, `Ref`, `Adapter`, `Scheduler` named identically across tasks.
-- [x] **Webhook + codebase-aware deliberately deferred** to v1.5 / v2 per spec §10. No corresponding tasks here, by design.
+- [x] **Webhook + codebase-aware deliberately deferred** to later 0.x releases per spec §10. No corresponding tasks here, by design.
 
 ---
 
@@ -2709,10 +2691,10 @@ corrections — the tasks remain the build sequence.
    unit/envtest + lint gate PRs. Workflows use least-privilege `permissions`, concurrency-cancel,
    and job timeouts. The `go` directive is pinned to 1.25 (newest the linter + Docker base support).
 
-### Known limitations (v1.1 backlog)
+### Known limitations (backlog)
 
 - **Overnight schedule windows** (`from` later than `to`, e.g. `22:00`→`06:00`) silently never match
   in `withinHHMM`. Not in v1 spec/tests. Add overnight support or CRD validation rejecting `to < from`.
-- **Conflicting policies** on the same backend CR are not detected in v1.0 (last writer wins).
-  Planned v1.1: a validating admission webhook.
+- **Conflicting policies** on the same backend CR are not detected in v0.1.0 (last writer wins).
+  Planned v0.3.0: a validating admission webhook.
 - **Org-level demand** not supported (repo-level only); `repository` is required.

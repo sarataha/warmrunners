@@ -67,8 +67,9 @@ Exposes Prometheus metrics (`warmrunners_desired_floor`, `_applied_floor`, `_que
 
 ## Roadmap
 
-- **v1.5** — discover the paths-to-runner-label mapping from `.github/workflows/*`; pre-warm by runner type.
-- **v2** — forecasting from historical job data; webhook-based demand.
+- **v0.2.0** — codebase-aware: discover the paths-to-runner-label mapping from `.github/workflows/*`; pre-warm by runner type.
+- **v0.3.0** — conflict-detection admission webhook; richer queue rules.
+- **later** — forecasting from historical job data; webhook-based demand.
 
 ## Non-goals
 
