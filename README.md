@@ -58,10 +58,36 @@ More samples in [`examples/`](examples/) (ARC + GARM).
 ## Install
 
 ```sh
-helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners --version 0.1.0
+helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners --version 0.1.1
 ```
 
 Then create a `Secret` with a GitHub token and a `WarmRunnerPolicy` (see [`examples/`](examples/)).
+
+## Verifying releases
+
+Release images and charts are signed with [cosign](https://github.com/sigstore/cosign)
+(keyless, via GitHub OIDC). Verify before deploying:
+
+```sh
+cosign verify \
+  --certificate-identity-regexp="^https://github.com/sarataha/warmrunners/.github/workflows/release.yml@refs/tags/v.*$" \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+  ghcr.io/sarataha/warmrunners:v0.1.1
+
+cosign verify \
+  --certificate-identity-regexp="^https://github.com/sarataha/warmrunners/.github/workflows/release.yml@refs/tags/v.*$" \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+  ghcr.io/sarataha/charts/warmrunners:0.1.1
+```
+
+Each image also carries an attested SPDX SBOM:
+
+```sh
+cosign verify-attestation --type spdxjson \
+  --certificate-identity-regexp="^https://github.com/sarataha/warmrunners/.github/workflows/release.yml@refs/tags/v.*$" \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+  ghcr.io/sarataha/warmrunners:v0.1.1
+```
 
 ## Backends
 
