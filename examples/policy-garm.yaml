@@ -1,0 +1,27 @@
+# examples/policy-garm.yaml
+apiVersion: warmrunners.io/v1alpha1
+kind: WarmRunnerPolicy
+metadata:
+  name: example-garm
+  namespace: default
+spec:
+  github:
+    owner: my-org
+    labels: [self-hosted, linux, x64]
+    auth:
+      secretRef: { name: gh-token, key: token }
+  target:
+    garm:
+      pool:
+        name: gcp-runner-m
+        namespace: garm-operator-system
+  floor: { min: 0, max: 30 }
+  schedule:
+    - days: [Mon, Tue, Wed, Thu, Fri]
+      from: "08:00"
+      to:   "19:00"
+      tz:   "UTC"
+      base: 2
+  queueRule:
+    pollInterval: 30s
+    cooldown: 2m
