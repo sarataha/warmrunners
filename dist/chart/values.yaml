@@ -3,7 +3,7 @@ controllerManager:
   replicas: 1
   container:
     image:
-      repository: controller
+      repository: ghcr.io/sarataha/warmrunners
       tag: latest
     imagePullPolicy: IfNotPresent
     args:
