@@ -37,6 +37,33 @@ func TestArcAdapter_GetFloor(t *testing.T) {
 	}
 }
 
+func TestArcAdapter_GetMax(t *testing.T) {
+	obj := newArc(3)
+	_ = unstructured.SetNestedField(obj.Object, int64(9), "spec", "maxRunners")
+	cl := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).WithObjects(obj).Build()
+	a := NewArcAdapter(cl)
+	got, set, err := a.GetMax(context.Background(), Ref{Name: "prod-runners", Namespace: "arc-system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !set || got != 9 {
+		t.Fatalf("GetMax = (%d, %v), want (9, true)", got, set)
+	}
+}
+
+func TestArcAdapter_GetMax_Unset(t *testing.T) {
+	obj := newArc(3) // no maxRunners
+	cl := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).WithObjects(obj).Build()
+	a := NewArcAdapter(cl)
+	_, set, err := a.GetMax(context.Background(), Ref{Name: "prod-runners", Namespace: "arc-system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set {
+		t.Fatalf("GetMax set = true, want false (maxRunners unset)")
+	}
+}
+
 func TestArcAdapter_SetFloor(t *testing.T) {
 	obj := newArc(2)
 	cl := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).WithObjects(obj).Build()

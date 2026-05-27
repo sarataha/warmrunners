@@ -298,6 +298,10 @@ func (in *WarmRunnerPolicyStatus) DeepCopyInto(out *WarmRunnerPolicyStatus) {
 		in, out := &in.LastReconcileTime, &out.LastReconcileTime
 		*out = (*in).DeepCopy()
 	}
+	if in.LastDecreaseTime != nil {
+		in, out := &in.LastDecreaseTime, &out.LastDecreaseTime
+		*out = (*in).DeepCopy()
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))

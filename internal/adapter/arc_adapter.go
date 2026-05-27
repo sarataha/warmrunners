@@ -37,6 +37,22 @@ func (a *ArcAdapter) GetFloor(ctx context.Context, ref Ref) (int32, error) {
 	return int32(v), nil
 }
 
+func (a *ArcAdapter) GetMax(ctx context.Context, ref Ref) (int32, bool, error) {
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(arcGVK)
+	if err := a.c.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}, u); err != nil {
+		return 0, false, err
+	}
+	v, found, err := unstructured.NestedInt64(u.Object, "spec", "maxRunners")
+	if err != nil {
+		return 0, false, fmt.Errorf("spec.maxRunners: %w", err)
+	}
+	if !found {
+		return 0, false, nil
+	}
+	return int32(v), true, nil
+}
+
 func (a *ArcAdapter) SetFloor(ctx context.Context, ref Ref, floor int32) error {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(arcGVK)

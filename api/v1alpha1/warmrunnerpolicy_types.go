@@ -95,11 +95,15 @@ type WarmRunnerPolicySpec struct {
 }
 
 type WarmRunnerPolicyStatus struct {
-	DesiredFloor      int32              `json:"desiredFloor,omitempty"`
-	AppliedFloor      int32              `json:"appliedFloor,omitempty"`
-	LastQueueDepth    int32              `json:"lastQueueDepth,omitempty"`
-	LastReconcileTime *metav1.Time       `json:"lastReconcileTime,omitempty"`
-	Conditions        []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+	DesiredFloor      int32        `json:"desiredFloor,omitempty"`
+	AppliedFloor      int32        `json:"appliedFloor,omitempty"`
+	LastQueueDepth    int32        `json:"lastQueueDepth,omitempty"`
+	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
+	// LastDecreaseTime is when the warm-floor was last decreased. It feeds the
+	// scheduler's cooldown so decreases are rate-limited independently of the
+	// per-poll reconcile time.
+	LastDecreaseTime *metav1.Time       `json:"lastDecreaseTime,omitempty"`
+	Conditions       []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 // +kubebuilder:object:root=true

@@ -36,6 +36,33 @@ func TestGarmAdapter_GetFloor(t *testing.T) {
 	}
 }
 
+func TestGarmAdapter_GetMax(t *testing.T) {
+	pool := newGarmPool(2)
+	_ = unstructured.SetNestedField(pool.Object, int64(7), "spec", "maxRunners")
+	cl := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).WithObjects(pool).Build()
+	g := NewGarmAdapter(cl)
+	got, set, err := g.GetMax(context.Background(), Ref{Name: "gcp-runner-m", Namespace: "garm-operator-system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !set || got != 7 {
+		t.Fatalf("GetMax = (%d, %v), want (7, true)", got, set)
+	}
+}
+
+func TestGarmAdapter_GetMax_Unset(t *testing.T) {
+	pool := newGarmPool(2) // no maxRunners
+	cl := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).WithObjects(pool).Build()
+	g := NewGarmAdapter(cl)
+	_, set, err := g.GetMax(context.Background(), Ref{Name: "gcp-runner-m", Namespace: "garm-operator-system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set {
+		t.Fatalf("GetMax set = true, want false (maxRunners unset)")
+	}
+}
+
 func TestGarmAdapter_SetFloor(t *testing.T) {
 	cl := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).WithObjects(newGarmPool(0)).Build()
 	g := NewGarmAdapter(cl)

@@ -117,7 +117,9 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		setCondition(&pol, "DemandSourceAvailable", false, errReason(srcErr), errMsg(srcErr))
 		now := metav1.Now()
 		pol.Status.LastReconcileTime = &now
-		_ = r.Status().Update(ctx, &pol)
+		if statusErr := r.Status().Update(ctx, &pol); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
 		return ctrl.Result{RequeueAfter: pol.Spec.QueueRule.PollInterval.Duration}, nil
 	}
 
@@ -126,24 +128,34 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	current, _ := ad.GetFloor(ctx, ref)
 	var lastDec time.Time
-	if pol.Status.LastReconcileTime != nil {
-		lastDec = pol.Status.LastReconcileTime.Time
+	if pol.Status.LastDecreaseTime != nil {
+		lastDec = pol.Status.LastDecreaseTime.Time
 	}
 
 	dec := r.Scheduler.Decide(pol.Spec, time.Now(), scheduler.Demand{Queued: snap.Queued, Running: snap.Running}, current, lastDec)
 
+	// Clamp to the backend's own max-runner cap. floor.max may exceed it, in
+	// which case the backend would reject the patch live.
+	if backendMax, set, maxErr := ad.GetMax(ctx, ref); maxErr == nil && set && dec.DesiredFloor > backendMax {
+		dec.DesiredFloor = backendMax
+	}
+
+	now := metav1.Now()
 	var setErr error
 	if demErr == nil && dec.DesiredFloor != current {
 		setErr = ad.SetFloor(ctx, ref, dec.DesiredFloor)
+		// Stamp LastDecreaseTime only when a decrease actually landed.
+		if setErr == nil && dec.DesiredFloor < current {
+			pol.Status.LastDecreaseTime = &now
+		}
 	}
 	setCondition(&pol, "AdapterAvailable", setErr == nil, errReason(setErr), errMsg(setErr))
 
 	pol.Status.DesiredFloor = dec.DesiredFloor
 	pol.Status.AppliedFloor = dec.DesiredFloor
 	pol.Status.LastQueueDepth = snap.Queued
-	now := metav1.Now()
 	pol.Status.LastReconcileTime = &now
-	_ = r.Status().Update(ctx, &pol)
+	statusErr := r.Status().Update(ctx, &pol)
 
 	applied := dec.DesiredFloor
 	if demErr != nil || setErr != nil {
@@ -159,6 +171,11 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		} else if dec.DesiredFloor < current {
 			floorChanges.WithLabelValues(pol.Name, "down").Inc()
 		}
+	}
+
+	// A failed status update (e.g. 409 conflict) must be retried, not dropped.
+	if statusErr != nil {
+		return ctrl.Result{}, statusErr
 	}
 
 	return ctrl.Result{RequeueAfter: pol.Spec.QueueRule.PollInterval.Duration}, nil

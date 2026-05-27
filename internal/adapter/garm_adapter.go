@@ -33,6 +33,19 @@ func (g *GarmAdapter) GetFloor(ctx context.Context, ref Ref) (int32, error) {
 	return int32(v), nil
 }
 
+func (g *GarmAdapter) GetMax(ctx context.Context, ref Ref) (int32, bool, error) {
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(garmGVK)
+	if err := g.c.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}, u); err != nil {
+		return 0, false, err
+	}
+	v, found, err := unstructured.NestedInt64(u.Object, "spec", "maxRunners")
+	if err != nil || !found {
+		return 0, false, err
+	}
+	return int32(v), true, nil
+}
+
 func (g *GarmAdapter) SetFloor(ctx context.Context, ref Ref, floor int32) error {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(garmGVK)
