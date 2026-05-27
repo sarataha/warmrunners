@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- warmrunners_v1alpha1_warmrunnerpolicy.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

@@ -1,0 +1,31 @@
+# examples/policy-arc.yaml
+apiVersion: warmrunners.warmrunners.io/v1alpha1
+kind: WarmRunnerPolicy
+metadata:
+  name: example-arc
+  namespace: default
+spec:
+  github:
+    owner: my-org
+    repository: my-repo
+    labels: [self-hosted, linux, x64]
+    auth:
+      secretRef: { name: gh-token, key: token }
+  target:
+    arc:
+      runnerSet:
+        name: prod-runners
+        namespace: arc-system
+  floor: { min: 0, max: 50 }
+  schedule:
+    - days: [Mon, Tue, Wed, Thu, Fri]
+      from: "08:00"
+      to:   "19:00"
+      tz:   "UTC"
+      base: 3
+  queueRule:
+    pollInterval: 30s
+    headroom:
+      - { whenQueueAtLeast: 5,  addRunners: 3 }
+      - { whenQueueAtLeast: 15, addRunners: 8 }
+    cooldown: 2m

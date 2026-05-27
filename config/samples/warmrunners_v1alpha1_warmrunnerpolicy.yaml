@@ -1,0 +1,9 @@
+apiVersion: warmrunners.warmrunners.io/v1alpha1
+kind: WarmRunnerPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: warmrunners
+    app.kubernetes.io/managed-by: kustomize
+  name: warmrunnerpolicy-sample
+spec:
+  # TODO(user): Add fields here

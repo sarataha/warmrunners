@@ -12,12 +12,17 @@ zencargo-specific; never hardcode service names, labels, or schedules in code.
 
 ## Tech stack
 
-- Go 1.26 (latest stable — hard rule: always latest stable unless justified)
+- Go 1.25 (`go` directive). Justified exception to "absolute latest": golangci-lint's released
+  binary is built with go1.25 and refuses a newer target, so 1.25 is the newest the toolchain
+  (linter + Docker base) supports. Develop locally on any Go >= 1.25.
 - kubebuilder 4.9.0 / controller-runtime (latest, scaffolded by kubebuilder)
+- Dockerfile base `golang:1.25` (must be >= the go directive)
 
 **Version policy (hard rule):** every dependency, tool, base image, GitHub Action, and Helm
 `appVersion` pins to the **latest stable** release. Any exception must be justified in the commit
-message. Don't copy stale versions from examples — check current latest before adding.
+message. The one standing exception: the `go` directive tracks the newest version the *whole*
+toolchain supports (currently capped at 1.25 by golangci-lint), not bleeding-edge — the directive
+is a compatibility floor, not "use newest". Don't copy stale versions from examples otherwise.
 - `unstructured.Unstructured` for ARC + GARM CRDs (no third-party vendoring)
 - `httptest` for GitHub stubs · `envtest` for integration · `client/fake` for unit
 - `prometheus/client_golang` for metrics
