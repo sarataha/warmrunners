@@ -12,8 +12,8 @@ zencargo-specific; never hardcode service names, labels, or schedules in code.
 
 ## Tech stack
 
-- Go 1.22+
-- kubebuilder v4 / controller-runtime
+- Go 1.26 (latest stable — hard rule: always latest stable unless justified)
+- kubebuilder 4.9.0 / controller-runtime (latest, scaffolded by kubebuilder)
 - `unstructured.Unstructured` for ARC + GARM CRDs (no third-party vendoring)
 - `httptest` for GitHub stubs · `envtest` for integration · `client/fake` for unit
 - `prometheus/client_golang` for metrics

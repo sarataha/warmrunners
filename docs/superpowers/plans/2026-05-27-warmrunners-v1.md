@@ -6,7 +6,7 @@
 
 **Architecture:** Single CRD `WarmRunnerPolicy` reconciled by one controller. Three pluggable interfaces — `DemandSource` (GitHub REST poller), `Scheduler` (clock + queue heuristic), `Adapter` (ARC + GARM). Adapters patch third-party CRDs via `unstructured.Unstructured` to avoid vendoring large dependency trees. Reconciler never deletes runners — only adjusts the warm-floor field; backends drain naturally.
 
-**Tech Stack:** Go 1.22+, kubebuilder v4, controller-runtime, `client-go`, `unstructured.Unstructured` for third-party CRDs, `prometheus/client_golang` for metrics, `httptest` + `envtest` for testing.
+**Tech Stack:** Go 1.26 (latest stable), kubebuilder 4.9.0, controller-runtime (latest, scaffolded), `client-go`, `unstructured.Unstructured` for third-party CRDs, `prometheus/client_golang` for metrics, `httptest` + `envtest` (k8s 1.34) for testing.
 
 ---
 
@@ -2511,7 +2511,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.22' }
+        with: { go-version: '1.26' }
       - run: go vet ./...
       - run: go test ./... -race -count=1
       - run: make manifests generate
