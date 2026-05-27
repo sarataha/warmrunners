@@ -58,25 +58,23 @@ helm install warmrunners ./dist/chart
 
 Then create a `Secret` with a GitHub token and a `WarmRunnerPolicy` (see `examples/`).
 
-## Status
+## Backends
 
-**v1 — functional, CI-green (unit + envtest + e2e).** ARC is the primary, validated path; GARM is
-supported through the same adapter interface. Live in-cluster validation against a real ARC runner
-set is the next milestone before the tagged `v1.0.0` release.
+- **ARC** ([actions-runner-controller](https://github.com/actions/actions-runner-controller)) — `AutoscalingRunnerSet.spec.minRunners`.
+- **GARM** ([cloudbase/garm](https://github.com/cloudbase/garm)) — `Pool.spec.minIdleRunners`.
+
+Exposes Prometheus metrics (`warmrunners_desired_floor`, `_applied_floor`, `_queue_depth`).
 
 ## Roadmap
 
-- **v1.0** — ARC + GARM adapters, schedule + queue-depth heuristic, Prometheus metrics, Helm chart. *(built)*
-- **v1.5** — Codebase-aware: discover the paths-to-runner-label mapping from the user's `.github/workflows/*` and pre-warm by runner type.
-- **v2.0** — Forecasting from historical job data; webhook-based demand source.
+- **v1.5** — discover the paths-to-runner-label mapping from `.github/workflows/*`; pre-warm by runner type.
+- **v2** — forecasting from historical job data; webhook-based demand.
 
 ## Non-goals
 
 - Not a generic Kubernetes autoscaler — self-hosted GitHub Actions runners only.
 - Not a replacement for ARC or GARM — it sits on top.
 - No runner deletion — floor adjustments only; backends drain naturally.
-
-Design and implementation notes live in [`docs/superpowers/`](docs/superpowers/).
 
 ## License
 
