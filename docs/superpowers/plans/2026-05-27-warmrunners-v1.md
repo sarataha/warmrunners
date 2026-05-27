@@ -2686,3 +2686,43 @@ Use `gh release create v1.0.0 --generate-notes`.
 - [x] **No placeholders** — every TDD task carries real Go code; every command is exact.
 - [x] **Type consistency** — `Demand`, `Snapshot`, `Decision`, `Ref`, `Adapter`, `Scheduler` named identically across tasks.
 - [x] **Webhook + codebase-aware deliberately deferred** to v1.5 / v2 per spec §10. No corresponding tasks here, by design.
+
+---
+
+## Execution Amendments
+
+Deviations from this plan discovered during implementation, recorded for honesty (the per-task
+snippets above are left as originally written; the code is the source of truth):
+
+1. **Adapter tests — name collision (Tasks 4.2/5.1).** The test helpers `arcGVK()` / `garmGVK()`
+   collide with the package-level vars `arcGVK` / `garmGVK` in the same package — the snippet as
+   written does not compile. Fixed by renaming the test helpers to `arcTestGVK` / `garmTestGVK`.
+   Implementation var names and all GVK strings unchanged.
+
+2. **Scheduler — dropped `fmt.go` wrapper (Task 2.3).** The plan offered the `fmtSscanf` indirection
+   as optional. Implementation imports `fmt` directly and calls `fmt.Sscanf` inline — simpler, no
+   behavioral change, one fewer file.
+
+3. **Reconciler — two gaps filled (Phase 6).** The plan injected a single `Demand` source (works for
+   tests, but the operator could not authenticate per-policy or run). Filled:
+   - **Per-policy auth:** when `r.Demand == nil` (production), the reconciler resolves the policy's
+     `spec.github.auth.secretRef` to a token and builds `demand.NewGitHubRESTPoller("https://api.github.com", token)`
+     per reconcile. Missing secret → `DemandSourceAvailable=False`, no patch. The injectable
+     `Demand` field is preserved so the plan's tests pass unchanged.
+   - **`cmd/main.go` wiring:** reconciler constructed with `Scheduler: scheduler.NewHeuristic()`,
+     `Demand: nil`, registered via `SetupWithManager`.
+   - **RBAC markers** added on `Reconcile` for secrets (get/list/watch) and the ARC/GARM CRDs
+     (get/update); `make manifests` regenerates `config/rbac/role.yaml`.
+
+4. **Reconciler — ginkgo scaffold placeholder (Phase 6).** The kubebuilder-scaffolded ginkgo test
+   created an empty-spec `WarmRunnerPolicy`, now rejected (HTTP 422) by the CRD's required-field
+   validation. Fixed the placeholder to build a valid policy + inject stubs. The real envtest
+   harness remains Phase 8 as planned.
+
+5. **Commit cadence.** Per the Commit Policy section above, commits are grouped per component
+   (~14 total) rather than one per task.
+
+### Known limitations (v1.1 backlog)
+
+- **Overnight schedule windows** (`from` later than `to`, e.g. `22:00`→`06:00`) silently never match
+  in `withinHHMM`. Not in v1 spec/tests. Add overnight support or CRD validation rejecting `to < from`.
