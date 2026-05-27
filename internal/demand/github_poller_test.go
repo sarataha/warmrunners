@@ -16,6 +16,11 @@ import (
 	"time"
 )
 
+const (
+	statusQueued = "queued"
+	etagABC      = `"abc"`
+)
+
 // TestGitHubRESTPoller_SendsUserAgent verifies every outgoing request carries a
 // User-Agent matching "warmrunners/<version>".
 func TestGitHubRESTPoller_SendsUserAgent(t *testing.T) {
@@ -33,7 +38,7 @@ func TestGitHubRESTPoller_SendsUserAgent(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(runsBody(1))
 			return
 		}
-		_ = json.NewEncoder(w).Encode(jobsBody(job("queued", "self-hosted")))
+		_ = json.NewEncoder(w).Encode(jobsBody(job(statusQueued, "self-hosted")))
 	}))
 	defer srv.Close()
 
@@ -75,16 +80,6 @@ func (rt *recordingTimer) recorded() []time.Duration {
 	return out
 }
 
-func (rt *recordingTimer) maxWait() time.Duration {
-	var m time.Duration
-	for _, d := range rt.recorded() {
-		if d > m {
-			m = d
-		}
-	}
-	return m
-}
-
 // runsForStatus returns a workflow_runs list body for a given status query.
 func runsBody(ids ...int64) map[string]any {
 	runs := make([]any, 0, len(ids))
@@ -121,7 +116,7 @@ func TestGitHubRESTPoller_CountsMatchingJobs(t *testing.T) {
 			// Old (broken) code counted total_count -> {Queued:2, Running:2}.
 			// New code must count only matching JOBS -> {Queued:1, Running:1}.
 			switch r.URL.Query().Get("status") {
-			case "queued":
+			case statusQueued:
 				_ = json.NewEncoder(w).Encode(runsBody(1, 3))
 			case "in_progress":
 				_ = json.NewEncoder(w).Encode(runsBody(2, 4))
@@ -132,14 +127,14 @@ func TestGitHubRESTPoller_CountsMatchingJobs(t *testing.T) {
 			// run 1: a queued matching job, a queued non-matching job,
 			// and a completed job that must be ignored.
 			_ = json.NewEncoder(w).Encode(jobsBody(
-				job("queued", "self-hosted", "linux", "gpu"), // matches {self-hosted, gpu}
-				job("queued", "self-hosted", "linux"),        // missing gpu -> excluded
-				job("completed", "self-hosted", "gpu"),       // completed -> excluded
+				job(statusQueued, "self-hosted", "linux", "gpu"), // matches {self-hosted, gpu}
+				job(statusQueued, "self-hosted", "linux"),        // missing gpu -> excluded
+				job("completed", "self-hosted", "gpu"),           // completed -> excluded
 			))
 		case strings.HasSuffix(r.URL.Path, "/runs/3/jobs"):
 			// run 3: only non-matching queued jobs -> contributes nothing.
 			_ = json.NewEncoder(w).Encode(jobsBody(
-				job("queued", "ubuntu-latest"),
+				job(statusQueued, "ubuntu-latest"),
 			))
 		case strings.HasSuffix(r.URL.Path, "/runs/2/jobs"):
 			// run 2: an in_progress matching job and an in_progress non-matching job.
@@ -208,21 +203,21 @@ func TestGitHubRESTPoller_ETagReusesCacheOn304(t *testing.T) {
 		inm := r.Header.Get("If-None-Match")
 		ifNoneMatch = append(ifNoneMatch, inm)
 		mu.Unlock()
-		w.Header().Set("ETag", `"abc"`)
-		if inm == `"abc"` {
+		w.Header().Set("ETag", etagABC)
+		if inm == etagABC {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
 		if strings.HasSuffix(r.URL.Path, "/actions/runs") {
 			switch r.URL.Query().Get("status") {
-			case "queued":
+			case statusQueued:
 				_ = json.NewEncoder(w).Encode(runsBody(1))
 			default:
 				_ = json.NewEncoder(w).Encode(runsBody())
 			}
 			return
 		}
-		_ = json.NewEncoder(w).Encode(jobsBody(job("queued", "self-hosted")))
+		_ = json.NewEncoder(w).Encode(jobsBody(job(statusQueued, "self-hosted")))
 	}))
 	defer srv.Close()
 
@@ -244,7 +239,7 @@ func TestGitHubRESTPoller_ETagReusesCacheOn304(t *testing.T) {
 	// The second poll must have sent If-None-Match for the cached endpoints.
 	sentConditional := false
 	for _, v := range ifNoneMatch {
-		if v == `"abc"` {
+		if v == etagABC {
 			sentConditional = true
 		}
 	}
@@ -259,14 +254,14 @@ func TestGitHubRESTPoller_ETagUpdatesAfter304(t *testing.T) {
 	// runs endpoint state machine: 200 "abc" -> 304 -> 200 "def".
 	runsState := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/actions/runs") && r.URL.Query().Get("status") == "queued" {
+		if strings.HasSuffix(r.URL.Path, "/actions/runs") && r.URL.Query().Get("status") == statusQueued {
 			switch runsState {
 			case 0:
-				w.Header().Set("ETag", `"abc"`)
+				w.Header().Set("ETag", etagABC)
 				_ = json.NewEncoder(w).Encode(runsBody(1))
 			case 1:
-				if r.Header.Get("If-None-Match") == `"abc"` {
-					w.Header().Set("ETag", `"abc"`)
+				if r.Header.Get("If-None-Match") == etagABC {
+					w.Header().Set("ETag", etagABC)
 					w.WriteHeader(http.StatusNotModified)
 				} else {
 					t.Errorf("poll 2: expected If-None-Match abc, got %q", r.Header.Get("If-None-Match"))
@@ -282,7 +277,7 @@ func TestGitHubRESTPoller_ETagUpdatesAfter304(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(runsBody())
 			return
 		}
-		_ = json.NewEncoder(w).Encode(jobsBody(job("queued", "self-hosted")))
+		_ = json.NewEncoder(w).Encode(jobsBody(job(statusQueued, "self-hosted")))
 	}))
 	defer srv.Close()
 
@@ -310,14 +305,14 @@ func TestGitHubRESTPoller_ETagIndependentKeys(t *testing.T) {
 			} else {
 				w.Header().Set("ETag", `"B"`)
 			}
-			if r.URL.Query().Get("status") == "queued" {
+			if r.URL.Query().Get("status") == statusQueued {
 				_ = json.NewEncoder(w).Encode(runsBody(1))
 			} else {
 				_ = json.NewEncoder(w).Encode(runsBody())
 			}
 			return
 		}
-		_ = json.NewEncoder(w).Encode(jobsBody(job("queued", "self-hosted")))
+		_ = json.NewEncoder(w).Encode(jobsBody(job(statusQueued, "self-hosted")))
 	}))
 	defer srv.Close()
 
@@ -341,7 +336,7 @@ func TestGitHubRESTPoller_RetrySucceedsAfter5xx(t *testing.T) {
 	var mu sync.Mutex
 	runsCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/actions/runs") && r.URL.Query().Get("status") == "queued" {
+		if strings.HasSuffix(r.URL.Path, "/actions/runs") && r.URL.Query().Get("status") == statusQueued {
 			mu.Lock()
 			runsCalls++
 			n := runsCalls
@@ -360,7 +355,7 @@ func TestGitHubRESTPoller_RetrySucceedsAfter5xx(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(runsBody())
 			return
 		}
-		_ = json.NewEncoder(w).Encode(jobsBody(job("queued", "self-hosted")))
+		_ = json.NewEncoder(w).Encode(jobsBody(job(statusQueued, "self-hosted")))
 	}))
 	defer srv.Close()
 
@@ -406,7 +401,7 @@ func TestGitHubRESTPoller_RetryAfterHeader(t *testing.T) {
 	var mu sync.Mutex
 	runsCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/actions/runs") && r.URL.Query().Get("status") == "queued" {
+		if strings.HasSuffix(r.URL.Path, "/actions/runs") && r.URL.Query().Get("status") == statusQueued {
 			mu.Lock()
 			runsCalls++
 			n := runsCalls
@@ -423,7 +418,7 @@ func TestGitHubRESTPoller_RetryAfterHeader(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(runsBody())
 			return
 		}
-		_ = json.NewEncoder(w).Encode(jobsBody(job("queued", "self-hosted")))
+		_ = json.NewEncoder(w).Encode(jobsBody(job(statusQueued, "self-hosted")))
 	}))
 	defer srv.Close()
 
@@ -456,7 +451,7 @@ func TestGitHubRESTPoller_RateLimitReset(t *testing.T) {
 	var mu sync.Mutex
 	runsCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/actions/runs") && r.URL.Query().Get("status") == "queued" {
+		if strings.HasSuffix(r.URL.Path, "/actions/runs") && r.URL.Query().Get("status") == statusQueued {
 			mu.Lock()
 			runsCalls++
 			n := runsCalls
@@ -474,7 +469,7 @@ func TestGitHubRESTPoller_RateLimitReset(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(runsBody())
 			return
 		}
-		_ = json.NewEncoder(w).Encode(jobsBody(job("queued", "self-hosted")))
+		_ = json.NewEncoder(w).Encode(jobsBody(job(statusQueued, "self-hosted")))
 	}))
 	defer srv.Close()
 
@@ -504,7 +499,7 @@ func TestGitHubRESTPoller_RateLimitZeroWaitBacksOff(t *testing.T) {
 	var mu sync.Mutex
 	runsCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/actions/runs") && r.URL.Query().Get("status") == "queued" {
+		if strings.HasSuffix(r.URL.Path, "/actions/runs") && r.URL.Query().Get("status") == statusQueued {
 			mu.Lock()
 			runsCalls++
 			n := runsCalls
@@ -522,7 +517,7 @@ func TestGitHubRESTPoller_RateLimitZeroWaitBacksOff(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(runsBody())
 			return
 		}
-		_ = json.NewEncoder(w).Encode(jobsBody(job("queued", "self-hosted")))
+		_ = json.NewEncoder(w).Encode(jobsBody(job(statusQueued, "self-hosted")))
 	}))
 	defer srv.Close()
 
