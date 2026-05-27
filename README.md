@@ -22,12 +22,13 @@ Floor decreases are rate-limited by a cooldown. The controller never deletes run
 moves the floor; the backend drains naturally.
 
 ```yaml
-apiVersion: warmrunners.io/v1alpha1
+apiVersion: warmrunners.warmrunners.io/v1alpha1
 kind: WarmRunnerPolicy
 metadata: { name: example }
 spec:
   github:
     owner: my-org
+    repository: my-repo
     labels: [self-hosted, linux, x64]
     auth: { secretRef: { name: gh-token, key: token } }
   target:

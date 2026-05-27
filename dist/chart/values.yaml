@@ -31,6 +31,7 @@ controllerManager:
         port: 8081
     securityContext:
       allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
       capabilities:
         drop:
           - "ALL"

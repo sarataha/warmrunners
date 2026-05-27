@@ -3,6 +3,7 @@ package adapter
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -27,8 +28,11 @@ func (g *GarmAdapter) GetFloor(ctx context.Context, ref Ref) (int32, error) {
 		return 0, err
 	}
 	v, found, err := unstructured.NestedInt64(u.Object, "spec", "minIdleRunners")
-	if err != nil || !found {
-		return 0, err
+	if err != nil {
+		return 0, fmt.Errorf("spec.minIdleRunners: %w", err)
+	}
+	if !found {
+		return 0, nil
 	}
 	return int32(v), nil
 }
