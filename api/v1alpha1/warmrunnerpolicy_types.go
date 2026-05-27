@@ -23,8 +23,12 @@ import (
 
 type GitHubConfig struct {
 	// +kubebuilder:validation:Required
-	Owner      string `json:"owner"`
-	Repository string `json:"repository,omitempty"`
+	Owner string `json:"owner"`
+	// Repository is required: v1 supports repo-level polling only. An empty
+	// value would build an invalid org-level URL (/repos/owner//actions/runs).
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Repository string `json:"repository"`
 	// +kubebuilder:validation:MinItems=1
 	Labels []string `json:"labels"`
 	Auth   AuthRef  `json:"auth"`

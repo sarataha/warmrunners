@@ -100,11 +100,16 @@ spec:
                   owner:
                     type: string
                   repository:
+                    description: |-
+                      Repository is required: v1 supports repo-level polling only. An empty
+                      value would build an invalid org-level URL (/repos/owner//actions/runs).
+                    minLength: 1
                     type: string
                 required:
                 - auth
                 - labels
                 - owner
+                - repository
                 type: object
               queueRule:
                 properties:
