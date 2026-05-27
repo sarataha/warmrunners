@@ -14,10 +14,19 @@ spec:
     singular: warmrunnerpolicy
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.desiredFloor
+      name: Desired
+      type: integer
+    - jsonPath: .status.appliedFloor
+      name: Applied
+      type: integer
+    - jsonPath: .status.lastQueueDepth
+      name: Queue
+      type: integer
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: WarmRunnerPolicy is the Schema for the warmrunnerpolicies API
         properties:
           apiVersion:
             description: |-
@@ -37,27 +46,170 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of WarmRunnerPolicy
             properties:
-              foo:
-                description: foo is an example field of WarmRunnerPolicy. Edit warmrunnerpolicy_types.go
-                  to remove/update
-                type: string
+              floor:
+                properties:
+                  max:
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  min:
+                    format: int32
+                    minimum: 0
+                    type: integer
+                required:
+                - max
+                - min
+                type: object
+              github:
+                properties:
+                  auth:
+                    properties:
+                      secretRef:
+                        description: SecretKeySelector selects a key of a Secret.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    required:
+                    - secretRef
+                    type: object
+                  labels:
+                    items:
+                      type: string
+                    minItems: 1
+                    type: array
+                  owner:
+                    type: string
+                  repository:
+                    type: string
+                required:
+                - auth
+                - labels
+                - owner
+                type: object
+              queueRule:
+                properties:
+                  cooldown:
+                    default: 2m
+                    type: string
+                  headroom:
+                    items:
+                      properties:
+                        addRunners:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        whenQueueAtLeast:
+                          format: int32
+                          minimum: 1
+                          type: integer
+                      required:
+                      - addRunners
+                      - whenQueueAtLeast
+                      type: object
+                    type: array
+                  pollInterval:
+                    default: 30s
+                    type: string
+                required:
+                - cooldown
+                - pollInterval
+                type: object
+              schedule:
+                items:
+                  properties:
+                    base:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    days:
+                      items:
+                        type: string
+                      minItems: 1
+                      type: array
+                    from:
+                      type: string
+                    to:
+                      type: string
+                    tz:
+                      type: string
+                  required:
+                  - base
+                  - days
+                  - from
+                  - to
+                  - tz
+                  type: object
+                type: array
+              target:
+                description: Exactly one of Arc or Garm MUST be set. Validated by
+                  the controller and at admission.
+                properties:
+                  arc:
+                    properties:
+                      runnerSet:
+                        properties:
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                    required:
+                    - runnerSet
+                    type: object
+                  garm:
+                    properties:
+                      pool:
+                        properties:
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                    required:
+                    - pool
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of target.arc or target.garm must be set
+                  rule: '(has(self.arc) ? 1 : 0) + (has(self.garm) ? 1 : 0) == 1'
+            required:
+            - floor
+            - github
+            - queueRule
+            - target
             type: object
           status:
-            description: status defines the observed state of WarmRunnerPolicy
             properties:
+              appliedFloor:
+                format: int32
+                type: integer
               conditions:
-                description: |-
-                  conditions represent the current state of the WarmRunnerPolicy resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -113,12 +265,16 @@ spec:
                   - type
                   type: object
                 type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
+              desiredFloor:
+                format: int32
+                type: integer
+              lastQueueDepth:
+                format: int32
+                type: integer
+              lastReconcileTime:
+                format: date-time
+                type: string
             type: object
-        required:
-        - spec
         type: object
     served: true
     storage: true

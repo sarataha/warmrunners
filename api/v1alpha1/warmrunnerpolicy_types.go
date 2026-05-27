@@ -17,70 +17,104 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// WarmRunnerPolicySpec defines the desired state of WarmRunnerPolicy
-type WarmRunnerPolicySpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// foo is an example field of WarmRunnerPolicy. Edit warmrunnerpolicy_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+type GitHubConfig struct {
+	// +kubebuilder:validation:Required
+	Owner      string `json:"owner"`
+	Repository string `json:"repository,omitempty"`
+	// +kubebuilder:validation:MinItems=1
+	Labels []string `json:"labels"`
+	Auth   AuthRef  `json:"auth"`
 }
 
-// WarmRunnerPolicyStatus defines the observed state of WarmRunnerPolicy.
+type AuthRef struct {
+	SecretRef corev1.SecretKeySelector `json:"secretRef"`
+}
+
+type ArcTarget struct {
+	RunnerSet RefNS `json:"runnerSet"`
+}
+
+type GarmTarget struct {
+	Pool RefNS `json:"pool"`
+}
+
+type RefNS struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
+// Exactly one of Arc or Garm MUST be set. Validated by the controller and at admission.
+// +kubebuilder:validation:XValidation:rule="(has(self.arc) ? 1 : 0) + (has(self.garm) ? 1 : 0) == 1",message="exactly one of target.arc or target.garm must be set"
+type Target struct {
+	Arc  *ArcTarget  `json:"arc,omitempty"`
+	Garm *GarmTarget `json:"garm,omitempty"`
+}
+
+type FloorRange struct {
+	// +kubebuilder:validation:Minimum=0
+	Min int32 `json:"min"`
+	// +kubebuilder:validation:Minimum=0
+	Max int32 `json:"max"`
+}
+
+type ScheduleWindow struct {
+	// +kubebuilder:validation:MinItems=1
+	Days []string `json:"days"`
+	From string   `json:"from"` // "HH:MM"
+	To   string   `json:"to"`   // "HH:MM"
+	TZ   string   `json:"tz"`   // IANA name, e.g. "UTC", "Europe/London"
+	// +kubebuilder:validation:Minimum=0
+	Base int32 `json:"base"`
+}
+
+type HeadroomTier struct {
+	// +kubebuilder:validation:Minimum=1
+	WhenQueueAtLeast int32 `json:"whenQueueAtLeast"`
+	// +kubebuilder:validation:Minimum=0
+	AddRunners int32 `json:"addRunners"`
+}
+
+type QueueRule struct {
+	// +kubebuilder:default="30s"
+	PollInterval metav1.Duration `json:"pollInterval"`
+	Headroom     []HeadroomTier  `json:"headroom,omitempty"`
+	// +kubebuilder:default="2m"
+	Cooldown metav1.Duration `json:"cooldown"`
+}
+
+type WarmRunnerPolicySpec struct {
+	GitHub    GitHubConfig     `json:"github"`
+	Target    Target           `json:"target"`
+	Floor     FloorRange       `json:"floor"`
+	Schedule  []ScheduleWindow `json:"schedule,omitempty"`
+	QueueRule QueueRule        `json:"queueRule"`
+}
+
 type WarmRunnerPolicyStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
-	// conditions represent the current state of the WarmRunnerPolicy resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
-	// +listType=map
-	// +listMapKey=type
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	DesiredFloor      int32              `json:"desiredFloor,omitempty"`
+	AppliedFloor      int32              `json:"appliedFloor,omitempty"`
+	LastQueueDepth    int32              `json:"lastQueueDepth,omitempty"`
+	LastReconcileTime *metav1.Time       `json:"lastReconcileTime,omitempty"`
+	Conditions        []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-
-// WarmRunnerPolicy is the Schema for the warmrunnerpolicies API
+// +kubebuilder:printcolumn:name="Desired",type=integer,JSONPath=`.status.desiredFloor`
+// +kubebuilder:printcolumn:name="Applied",type=integer,JSONPath=`.status.appliedFloor`
+// +kubebuilder:printcolumn:name="Queue",type=integer,JSONPath=`.status.lastQueueDepth`
 type WarmRunnerPolicy struct {
-	metav1.TypeMeta `json:",inline"`
-
-	// metadata is a standard object metadata
-	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
-
-	// spec defines the desired state of WarmRunnerPolicy
-	// +required
-	Spec WarmRunnerPolicySpec `json:"spec"`
-
-	// status defines the observed state of WarmRunnerPolicy
-	// +optional
-	Status WarmRunnerPolicyStatus `json:"status,omitempty,omitzero"`
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              WarmRunnerPolicySpec   `json:"spec,omitempty"`
+	Status            WarmRunnerPolicyStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
-
-// WarmRunnerPolicyList contains a list of WarmRunnerPolicy
 type WarmRunnerPolicyList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -89,4 +123,16 @@ type WarmRunnerPolicyList struct {
 
 func init() {
 	SchemeBuilder.Register(&WarmRunnerPolicy{}, &WarmRunnerPolicyList{})
+}
+
+// Kind returns "arc" or "garm" when exactly one target is set, "" otherwise.
+func (t Target) Kind() string {
+	arc, garm := t.Arc != nil, t.Garm != nil
+	if arc && !garm {
+		return "arc"
+	}
+	if garm && !arc {
+		return "garm"
+	}
+	return ""
 }
