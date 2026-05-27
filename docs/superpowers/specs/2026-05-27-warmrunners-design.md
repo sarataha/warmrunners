@@ -56,14 +56,20 @@ on one CR. Floor decreases are rate-limited by a `cooldown` to prevent churn.
                                                   +--------------------------+
 ```
 
-Three components sit behind interfaces, all swappable:
+Four components sit behind interfaces, all swappable:
 
-- `DemandSource` — v1: `GitHubRESTPoller`. v2: webhook receiver. Same interface.
-- `Scheduler` — v1: clock + queue rule. v2: forecaster. Same interface.
-- `Adapter` — v1: `ArcAdapter`, `GarmAdapter`. v2+: e.g. `TerraformAwsAdapter`. Same interface.
+- `DemandSource` — current reactive signal from `GitHubRESTPoller` (queued + running). A
+  webhook receiver is a later alternative implementation behind the same interface.
+- `Predictor` — added in v0.2.0. Reads active `workflow_runs` and their parsed YAML
+  (`needs:` graph) to estimate label-set demand from jobs that have not yet queued because
+  their upstream dependencies are still in flight. Same shape of output as `DemandSource`
+  (label-set → count) so the reconciler treats both signals uniformly.
+- `Scheduler` — combines schedule base, reactive demand, and predicted demand into a desired
+  floor via `max(...)`-of-floors, clamped to `floor.min`/`floor.max`.
+- `Adapter` — `ArcAdapter`, `GarmAdapter`. Adds e.g. `TerraformAwsAdapter` later. Same interface.
 
-This is the key extensibility contract — switching a `DemandSource` or adding an `Adapter`
-must not require changes to the reconciler.
+This is the key extensibility contract — switching a `DemandSource`, adding a `Predictor`,
+or adding an `Adapter` must not require changes to the reconciler.
 
 ## 3. CRD: `WarmRunnerPolicy` (v1alpha1)
 
@@ -229,14 +235,33 @@ committed-stable — not before. Each feature ships as its own minor release, no
 
 - **v0.1.0** (shipped) — `ArcAdapter` + `GarmAdapter`, `WarmRunnerPolicy` v1alpha1, REST-poll
   `DemandSource`, clock + queue-headroom `Scheduler`, Prometheus metrics, Helm chart.
-- **v0.2.0** — Codebase-aware: parse the user's `.github/workflows/*.yml` to discover the
-  paths→`runs-on` label mapping automatically and pre-warm by runner type. The first feature that
-  meaningfully differentiates from a cron + `kubectl patch`. (Prioritized ahead of the webhook —
-  ordered by value, not by sequence.)
-- **v0.3.0** — Validating admission webhook for cross-policy conflict detection; richer
-  `queueRule` shapes (e.g. per-label headroom).
-- **later** — Forecasting `Scheduler`: time-series over historical job data, per-window
-  predictions. Webhook receiver as an alternative `DemandSource`. Possible `TerraformAwsAdapter`.
+- **v0.1.1** (shipped) — Polish patch: CRD CEL validation, controller flags
+  (`--max-concurrent-reconciles`, `--log-level`, `--github-http-timeout`), GitHub poller
+  hardening (User-Agent, ETag, retry/backoff), `build_info` and reconcile-error metrics, RBAC
+  aggregation labels, cosign keyless signing, SPDX SBOM attestation.
+- **v0.2.0** — Codebase-aware `Predictor`: for each active `workflow_run` (queued or
+  in-progress), parse the workflow YAML and read the `needs:` graph; for jobs whose upstream
+  dependencies have not yet completed, derive their `runs-on` labels and contribute to the
+  predicted floor of every policy that serves a matching label set. Pre-warms downstream
+  runners (e.g. GPU) while upstream jobs (e.g. lint) are still running, so the downstream
+  pool is hot the moment those jobs queue. The first feature that meaningfully differentiates
+  from a cron + `kubectl patch`. No other GitHub Actions autoscaler (ARC, KEDA, scale-set
+  client, commercial providers) reads the workflow `needs:` graph to pre-warm downstream
+  runner types — they all react to `workflow_job: queued`, which by GitHub's design fires
+  only after `needs:` are satisfied (too late to warm). Statically reading the YAML is the
+  only way to anticipate.
+- **v0.3.0** — Activity-based volume multiplier: scale a baseline floor by recent PR /
+  push activity, so quiet repos stay cold and busy repos keep a larger baseline under
+  everything else. Complements v0.2.0 (which routes the right pool) with a per-repo volume
+  signal (which sets the right magnitude).
+- **v0.4.0** — Validating admission webhook for cross-policy conflict detection (two
+  `WarmRunnerPolicy` objects targeting the same backend); richer `queueRule` shapes
+  (e.g. per-label headroom).
+- **later** — Forecasting `Scheduler`: rolling day-of-week × hour-of-day quantile histogram
+  per policy, applied as another floor candidate in `max(...)` once enough history exists
+  (≥ 2–3 weeks, gated by a `ForecastReady` condition; ship first in shadow-only mode that
+  emits a `forecast_floor` metric without applying it). Webhook receiver as an alternative
+  `DemandSource`. Possible `TerraformAwsAdapter`.
 - **v1.0.0** — when `WarmRunnerPolicy` graduates `v1alpha1` → `v1` (API stability promise).
 
 ## 11. Open questions deferred to implementation

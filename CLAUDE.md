@@ -68,4 +68,8 @@ go build ./...
   kubebuilder CRD YAML.
 - Don't add transitive deps on `actions-runner-controller` or `garm-operator`
   Go packages. Use `unstructured` instead.
-- Don't add a webhook receiver or codebase-aware logic — those are v1.5 / v2.
+- Don't add a webhook receiver or an admission webhook on the v0.2.0 branch —
+  v0.4.0 owns the validating webhook; a workflow-event webhook receiver is "later".
+- Don't add forecasting / ML / Vertex AI. The codebase-aware `Predictor` (v0.2.0) is
+  deterministic YAML parsing; the forecasting roadmap item is a rolling quantile
+  histogram, not ML. Keep it that way.

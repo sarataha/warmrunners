@@ -98,8 +98,12 @@ Exposes Prometheus metrics (`warmrunners_desired_floor`, `_applied_floor`, `_que
 
 ## Roadmap
 
-- **v0.2.0** — codebase-aware: discover the paths-to-runner-label mapping from `.github/workflows/*`; pre-warm by runner type.
-- **v0.3.0** — conflict-detection admission webhook; richer queue rules.
+- **v0.2.0** — codebase-aware predictor: read the `needs:` graph of active `workflow_runs`
+  and pre-warm downstream runner types (e.g. GPU) while their upstream jobs (e.g. lint) are
+  still running.
+- **v0.3.0** — activity-based volume multiplier: scale a baseline floor by recent
+  PR / push activity.
+- **v0.4.0** — conflict-detection admission webhook; richer queue rules.
 - **later** — forecasting from historical job data; webhook-based demand.
 
 ## Non-goals
