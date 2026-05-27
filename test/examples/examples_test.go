@@ -11,9 +11,9 @@ import (
 
 // TestExamplesAreValid parses every examples/*.yaml into the typed
 // WarmRunnerPolicy and checks apiVersion, kind, and required fields. This guards
-// against the class of bug where an example ships a wrong apiVersion (e.g.
-// warmrunners.io vs warmrunners.warmrunners.io) or omits a now-required field
-// and fails the moment a user runs `kubectl apply`.
+// against the class of bug where an example ships a wrong apiVersion (e.g. a
+// stale group) or omits a now-required field, which fails the moment a user
+// runs `kubectl apply`.
 func TestExamplesAreValid(t *testing.T) {
 	dir := filepath.Join("..", "..", "examples")
 	entries, err := os.ReadDir(dir)
@@ -21,7 +21,7 @@ func TestExamplesAreValid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const wantAPIVersion = "warmrunners.warmrunners.io/v1alpha1"
+	const wantAPIVersion = "autoscaling.warmrunners.io/v1alpha1"
 	found := 0
 	for _, e := range entries {
 		if filepath.Ext(e.Name()) != ".yaml" && filepath.Ext(e.Name()) != ".yml" {

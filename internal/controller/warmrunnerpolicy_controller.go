@@ -89,9 +89,9 @@ func (r *WarmRunnerPolicyReconciler) demandSource(ctx context.Context, pol *v1al
 	return demand.NewGitHubRESTPoller(githubBaseURL, string(tokenBytes)), nil
 }
 
-// +kubebuilder:rbac:groups=warmrunners.warmrunners.io,resources=warmrunnerpolicies,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=warmrunners.warmrunners.io,resources=warmrunnerpolicies/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=warmrunners.warmrunners.io,resources=warmrunnerpolicies/finalizers,verbs=update
+// +kubebuilder:rbac:groups=autoscaling.warmrunners.io,resources=warmrunnerpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=autoscaling.warmrunners.io,resources=warmrunnerpolicies/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=autoscaling.warmrunners.io,resources=warmrunnerpolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=actions.github.com,resources=autoscalingrunnersets,verbs=get;update
 // +kubebuilder:rbac:groups=garm-operator.mercedes-benz.com,resources=pools,verbs=get;update

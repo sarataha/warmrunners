@@ -12,20 +12,16 @@ zencargo-specific; never hardcode service names, labels, or schedules in code.
 
 ## Tech stack
 
-- Go 1.25 (`go` directive). Justified exception to "absolute latest": golangci-lint's released
-  binary is built with go1.25 and refuses a newer target, so 1.25 is the newest the toolchain
-  (linter + Docker base) supports. Develop locally on any Go >= 1.25.
-- kubebuilder 4.9.0 / controller-runtime (latest, scaffolded by kubebuilder)
-- Dockerfile base `golang:1.25` (must be >= the go directive)
-
-**Version policy (hard rule):** every dependency, tool, base image, GitHub Action, and Helm
-`appVersion` pins to the **latest stable** release. Any exception must be justified in the commit
-message. The one standing exception: the `go` directive tracks the newest version the *whole*
-toolchain supports (currently capped at 1.25 by golangci-lint), not bleeding-edge — the directive
-is a compatibility floor, not "use newest". Don't copy stale versions from examples otherwise.
+- Go 1.25, kubebuilder 4.9.0, controller-runtime
+- Dockerfile base `golang:1.25` (must be ≥ the `go` directive)
 - `unstructured.Unstructured` for ARC + GARM CRDs (no third-party vendoring)
 - `httptest` for GitHub stubs · `envtest` for integration · `client/fake` for unit
 - `prometheus/client_golang` for metrics
+
+**Version policy (hard rule):** pin every dependency, tool, base image, and GitHub Action to the
+**latest stable**; justify exceptions in the commit message. Standing exception: the `go` directive
+tracks the newest version the *whole* toolchain supports (capped at 1.25 by golangci-lint), not
+bleeding-edge — it's a compatibility floor, not "use newest".
 
 ## Commands
 
@@ -48,19 +44,8 @@ go build ./...
   `Snapshot`, `Ref`). Rename only via spec amendment.
 - TDD enforced (RED → GREEN → REFACTOR). No implementation code before a
   failing test exists. `superpowers:test-driven-development` skill.
-- Each task ends with one focused commit (conventional commit prefix:
-  `feat(scope):` / `test(scope):` / `feat(api):` / `docs:` / `ci:` / `chore:`).
-
-## Engineering principles (Karpathy)
-
-1. **Think before coding.** Surface confusion and tradeoffs before implementation.
-   If a step is ambiguous, ask, don't guess.
-2. **Simplicity first.** Minimum code that solves the problem. No speculative
-   features, no abstractions without a second concrete caller.
-3. **Surgical changes.** Edit only what's necessary. Preserve existing style.
-   No orthogonal refactors unless the spec calls for them.
-4. **Goal-driven execution.** Each task has a verifiable success criterion
-   (the test passes). Loop until it does; don't claim "done" without proof.
+- Conventional Commit prefixes: `feat(scope):` / `fix(scope):` / `test(scope):` / `docs:` / `ci:` / `chore:`.
+- Make surgical changes: edit only what's needed, preserve existing style, no orthogonal refactors.
 
 ## Safety rules
 

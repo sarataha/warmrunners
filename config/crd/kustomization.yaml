@@ -2,7 +2,7 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/warmrunners.warmrunners.io_warmrunnerpolicies.yaml
+- bases/autoscaling.warmrunners.io_warmrunnerpolicies.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

@@ -71,14 +71,14 @@ A `WarmRunnerPolicy` targets exactly one backend (`target.arc` or `target.garm`,
 exclusive — validated by the CRD schema and a defensive runtime check).
 
 ```yaml
-apiVersion: warmrunners.io/v1alpha1
+apiVersion: autoscaling.warmrunners.io/v1alpha1
 kind: WarmRunnerPolicy
 metadata:
   name: example-arc
 spec:
   github:
     owner: my-org
-    repository: my-repo           # omit for org-level queue
+    repository: my-repo           # required (v1 polls repo-level runs)
     labels: [self-hosted, linux, x64]
     auth:
       secretRef: { name: gh-token, key: token }
@@ -93,7 +93,7 @@ spec:
     min: 0                        # absolute floor when nothing else applies
     max: 50                       # safety cap; controller never sets above this
 
-  schedule:                       # outside any window → scheduleBase = floor.min
+  schedule:                       # outside any window → scheduleBase = 0 (desired still clamped to floor.min)
     - days: [Mon, Tue, Wed, Thu, Fri]
       from: "08:00"
       to:   "19:00"
@@ -115,10 +115,10 @@ status:
   lastQueueDepth: 12
   lastReconcileTime: "2026-05-27T10:00:00Z"
   conditions:
-    - type: Ready
+    - type: DemandSourceAvailable
       status: "True"
-    - type: AdapterError
-      status: "False"
+    - type: AdapterAvailable
+      status: "True"
 ```
 
 GARM target example (mutually exclusive with `arc`):
@@ -131,8 +131,8 @@ target:
       namespace: garm-operator-system
 ```
 
-Multiple policies can target different pools; conflicting policies on the same backend CR
-are rejected (see §6).
+Multiple policies can target different pools. Conflicting policies on the *same* backend CR are
+not guarded in v1.0 (last writer wins); see §6.
 
 ## 4. Reconcile flow
 
@@ -151,13 +151,13 @@ Headroom selection: when multiple `queueRule.headroom` tiers match, the **highes
 
 ## 5. Error handling and safety
 
-- **GitHub API failure** — do not change floor. Surface `DemandSourceUnavailable=True`
+- **GitHub API failure** — do not change floor. Surface `DemandSourceAvailable=False`
   condition. Last applied floor stays in place.
-- **Backend patch failure** — exponential backoff; surface `AdapterError=True` condition.
-- **Auth missing or invalid** — policy goes `Ready=False`; no patches attempted.
-- **Conflicting policies targeting the same backend CR** — v1.0: detect at reconcile time,
-  set `Ready=False` with a clear message on all conflicting policies, refuse to patch.
-  v1.1: validating admission webhook to reject at apply time.
+- **Backend patch failure** — surface `AdapterAvailable=False` condition; the reconcile
+  returns an error so controller-runtime requeues with backoff.
+- **Auth missing or invalid** — `DemandSourceAvailable=False`; no patches attempted.
+- **Conflicting policies targeting the same backend CR** — not handled in v1.0 (last writer
+  wins). Planned for v1.1: a validating admission webhook to reject conflicts at apply time.
 - **Manual drift** — if a human edits the backend CR's floor field directly between
   reconciles, next reconcile re-applies the desired value. This is documented behavior, not
   a bug.
@@ -190,19 +190,17 @@ Prometheus metrics, exported by the controller on the standard `:8080/metrics` e
 - `warmrunners_desired_floor{policy,target}` (gauge)
 - `warmrunners_applied_floor{policy,target}` (gauge)
 - `warmrunners_queue_depth{policy}` (gauge)
-- `warmrunners_reconcile_duration_seconds{policy}` (histogram)
-- `warmrunners_demand_source_errors_total{policy}` (counter)
-- `warmrunners_adapter_errors_total{policy,target}` (counter)
 - `warmrunners_floor_change_total{policy,direction=up|down}` (counter)
 
-Structured JSON logs via `controller-runtime`'s logger. Status conditions on the CR.
-A starter Grafana dashboard JSON ships under `examples/grafana/`.
+Error states surface as CR status conditions (`DemandSourceAvailable`, `AdapterAvailable`)
+rather than counters. Structured JSON logs via `controller-runtime`'s logger.
 
 ## 8. Install and packaging
 
 - Local dev: `make deploy` against the current kubecontext.
-- Helm chart at `deploy/helm/warmrunners` (v1.0).
-- Single-file install: `kubectl apply -f https://github.com/sarataha/warmrunners/releases/download/v1.0.0/install.yaml`.
+- Helm chart at `dist/chart`, published to GHCR as an OCI artifact:
+  `helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners --version <version>`.
+- Single-file install: the `install.yaml` attached to each GitHub release.
 - Container image: `ghcr.io/sarataha/warmrunners:<tag>` (multi-arch: linux/amd64, linux/arm64).
 
 ## 9. Repository layout (post-`kubebuilder init`)
@@ -216,7 +214,7 @@ warmrunners/
     scheduler/                  # decision logic (clock + queue headroom)
     adapter/                    # ArcAdapter, GarmAdapter
   config/                       # kubebuilder manifests (CRDs, RBAC, deployment)
-  deploy/helm/                  # Helm chart
+  dist/chart/                   # Helm chart (generated by the kubebuilder helm plugin)
   docs/superpowers/specs/       # this spec and future ones
   examples/                     # sample WarmRunnerPolicy YAML, Grafana dashboard
   Makefile

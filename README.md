@@ -22,7 +22,7 @@ Floor decreases are rate-limited by a cooldown. The controller never deletes run
 moves the floor; the backend drains naturally.
 
 ```yaml
-apiVersion: warmrunners.warmrunners.io/v1alpha1
+apiVersion: autoscaling.warmrunners.io/v1alpha1
 kind: WarmRunnerPolicy
 metadata: { name: example }
 spec:
@@ -53,7 +53,7 @@ More samples in [`examples/`](examples/) (ARC + GARM).
 ## Install
 
 ```sh
-helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners --version 1.0.0
+helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners --version 0.1.0
 ```
 
 Then create a `Secret` with a GitHub token and a `WarmRunnerPolicy` (see [`examples/`](examples/)).

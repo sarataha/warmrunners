@@ -25,3 +25,6 @@ go.work
 *.swp
 *.swo
 *~
+
+# Personal, per-project Claude instructions (not shared)
+CLAUDE.local.md

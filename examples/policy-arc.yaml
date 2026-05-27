@@ -1,5 +1,5 @@
 # examples/policy-arc.yaml
-apiVersion: warmrunners.warmrunners.io/v1alpha1
+apiVersion: autoscaling.warmrunners.io/v1alpha1
 kind: WarmRunnerPolicy
 metadata:
   name: example-arc

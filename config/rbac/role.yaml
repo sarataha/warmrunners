@@ -20,14 +20,7 @@ rules:
   - get
   - update
 - apiGroups:
-  - garm-operator.mercedes-benz.com
-  resources:
-  - pools
-  verbs:
-  - get
-  - update
-- apiGroups:
-  - warmrunners.warmrunners.io
+  - autoscaling.warmrunners.io
   resources:
   - warmrunnerpolicies
   verbs:
@@ -39,16 +32,23 @@ rules:
   - update
   - watch
 - apiGroups:
-  - warmrunners.warmrunners.io
+  - autoscaling.warmrunners.io
   resources:
   - warmrunnerpolicies/finalizers
   verbs:
   - update
 - apiGroups:
-  - warmrunners.warmrunners.io
+  - autoscaling.warmrunners.io
   resources:
   - warmrunnerpolicies/status
   verbs:
   - get
   - patch
+  - update
+- apiGroups:
+  - garm-operator.mercedes-benz.com
+  resources:
+  - pools
+  verbs:
+  - get
   - update

@@ -6,7 +6,7 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
-## [1.0.0]
+## [0.1.0] - 2026-05-27
 
 ### Added
 - `WarmRunnerPolicy` CRD and Kubernetes operator (kubebuilder / controller-runtime).
@@ -18,5 +18,5 @@ All notable changes to this project are documented here. Format follows
 - Helm chart, published to GHCR as an OCI artifact.
 - Multi-arch container image (linux/amd64, linux/arm64) on GHCR.
 
-[Unreleased]: https://github.com/sarataha/warmrunners/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/sarataha/warmrunners/releases/tag/v1.0.0
+[Unreleased]: https://github.com/sarataha/warmrunners/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/sarataha/warmrunners/releases/tag/v0.1.0

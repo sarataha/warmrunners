@@ -10,38 +10,6 @@
 
 ---
 
-## Commit Policy (overrides per-task commit steps)
-
-Tasks are the **work breakdown** — each is one small TDD step (write failing test → red →
-implement → green). But **commits are grouped per component**, NOT per task, to keep the public
-history clean and reviewable (~14 commits total, not ~40).
-
-Within a component: do all its tasks (each red→green), then make **one commit** when the whole
-component is green. The `git commit` step inside individual tasks is superseded by this mapping.
-Tasks whose test passes against already-written logic (e.g. 2.4, 2.6, 3.3, 6.4) do NOT get their
-own commit — they fold into the component commit.
-
-| # | Commit | Covers tasks | Message |
-|---|--------|--------------|---------|
-| 1 | go module | 0.1 | `chore: init go module` |
-| 2 | kubebuilder scaffold | 0.2, 0.3 | `chore: kubebuilder scaffold + WarmRunnerPolicy api` |
-| 3 | API types | 1.1, 1.2 | `feat(api): WarmRunnerPolicy types + Target.Kind` |
-| 4 | scheduler | 2.1–2.8 | `feat(scheduler): clock + queue-headroom heuristic with cooldown` |
-| 5 | demand source | 3.1–3.4 | `feat(demand): GitHub REST poller` |
-| 6 | ARC adapter | 4.1–4.3 | `feat(adapter): ARC adapter (minRunners)` |
-| 7 | GARM adapter | 5.1 | `feat(adapter): GARM adapter (minIdleRunners)` |
-| 8 | reconciler | 6.1–6.5 | `feat(controller): reconcile loop + status conditions` |
-| 9 | metrics | 7.1 | `feat(controller): prometheus metrics` |
-| 10 | integration | 8.1, 8.2 | `test(controller): envtest integration` |
-| 11 | examples | 9.1 | `docs(examples): sample policies` |
-| 12 | CI | 9.2 | `ci: vet + test + generated-file check` |
-| 13 | Helm | 9.3 | `feat(deploy): Helm chart` |
-| 14 | README + release | 9.4, 9.5 | `docs(readme): v1.0` + tag `v1.0.0` |
-
-Each component commit must be green (`go test ./... ` passes for that package) before committing.
-
----
-
 ## File Structure
 
 ```
@@ -197,8 +165,11 @@ import (
 
 type GitHubConfig struct {
     // +kubebuilder:validation:Required
-    Owner      string `json:"owner"`
-    Repository string `json:"repository,omitempty"`
+    Owner string `json:"owner"`
+    // Required: v1 polls repo-level workflow runs (`/repos/{owner}/{repo}/...`).
+    // +kubebuilder:validation:Required
+    // +kubebuilder:validation:MinLength=1
+    Repository string `json:"repository"`
     // +kubebuilder:validation:MinItems=1
     Labels []string  `json:"labels"`
     Auth   AuthRef   `json:"auth"`
@@ -273,7 +244,10 @@ type WarmRunnerPolicyStatus struct {
     AppliedFloor      int32        `json:"appliedFloor,omitempty"`
     LastQueueDepth    int32        `json:"lastQueueDepth,omitempty"`
     LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
-    Conditions        []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+    // LastDecreaseTime is when the floor was last lowered. The scheduler reads it to
+    // rate-limit decreases via the cooldown; it must NOT be conflated with LastReconcileTime.
+    LastDecreaseTime *metav1.Time `json:"lastDecreaseTime,omitempty"`
+    Conditions       []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 // +kubebuilder:object:root=true
@@ -587,6 +561,7 @@ Replace `heuristic.go` body:
 package scheduler
 
 import (
+    "fmt"
     "time"
 
     "github.com/sarataha/warmrunners/api/v1alpha1"
@@ -654,28 +629,12 @@ func withinHHMM(t time.Time, from, to string) bool {
 
 func parseHM(s string) (int, int) {
     var h, m int
-    _, _ = fmtSscanf(s, "%d:%d", &h, &m)
+    _, _ = fmt.Sscanf(s, "%d:%d", &h, &m)
     return h, m
 }
-
-// fmtSscanf wraps fmt.Sscanf to avoid an extra import at the top.
-func fmtSscanf(s, format string, a ...any) (int, error) {
-    return fmtSscanfImpl(s, format, a...)
-}
 ```
 
-Then create the tiny wrapper to avoid polluting imports:
-
-```go
-// internal/scheduler/fmt.go
-package scheduler
-
-import "fmt"
-
-func fmtSscanfImpl(s, format string, a ...any) (int, error) {
-    return fmt.Sscanf(s, format, a...)
-}
-```
+(`heuristic.go` imports `fmt` and `time` directly — no wrapper file needed.)
 
 - [ ] **Step 4: Run, expect pass**
 
@@ -1366,13 +1325,15 @@ import (
     "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func arcGVK() schema.GroupVersionKind {
+// arcTestGVK is named distinctly from the implementation's package-level arcGVK var
+// to avoid a same-package identifier collision.
+func arcTestGVK() schema.GroupVersionKind {
     return schema.GroupVersionKind{Group: "actions.github.com", Version: "v1alpha1", Kind: "AutoscalingRunnerSet"}
 }
 
 func newArc(minRunners int64) *unstructured.Unstructured {
     u := &unstructured.Unstructured{}
-    u.SetGroupVersionKind(arcGVK())
+    u.SetGroupVersionKind(arcTestGVK())
     u.SetName("prod-runners")
     u.SetNamespace("arc-system")
     _ = unstructured.SetNestedField(u.Object, minRunners, "spec", "minRunners")
@@ -1555,13 +1516,15 @@ import (
     "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func garmGVK() schema.GroupVersionKind {
+// garmTestGVK is named distinctly from the implementation's package-level garmGVK var
+// to avoid a same-package identifier collision.
+func garmTestGVK() schema.GroupVersionKind {
     return schema.GroupVersionKind{Group: "garm-operator.mercedes-benz.com", Version: "v1beta1", Kind: "Pool"}
 }
 
 func newGarmPool(min int64) *unstructured.Unstructured {
     u := &unstructured.Unstructured{}
-    u.SetGroupVersionKind(garmGVK())
+    u.SetGroupVersionKind(garmTestGVK())
     u.SetName("gcp-runner-m")
     u.SetNamespace("garm-operator-system")
     _ = unstructured.SetNestedField(u.Object, min, "spec", "minIdleRunners")
@@ -1821,25 +1784,36 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
     snap, demErr := r.Demand.CurrentDemand(ctx, pol.Spec.GitHub.Owner, pol.Spec.GitHub.Repository, pol.Spec.GitHub.Labels)
 
     current, _ := ad.GetFloor(ctx, ref)
+
+    // Cooldown reads LastDecreaseTime — the time the floor was last *lowered* — NOT
+    // LastReconcileTime (which changes every poll and would block decreases forever).
     var lastDec time.Time
-    if pol.Status.LastReconcileTime != nil {
-        lastDec = pol.Status.LastReconcileTime.Time
+    if pol.Status.LastDecreaseTime != nil {
+        lastDec = pol.Status.LastDecreaseTime.Time
     }
 
     dec := r.Scheduler.Decide(pol.Spec, time.Now(), scheduler.Demand{Queued: snap.Queued, Running: snap.Running}, current, lastDec)
 
+    now := metav1.Now()
+    applied := current
     if demErr == nil && dec.DesiredFloor != current {
         if err := ad.SetFloor(ctx, ref, dec.DesiredFloor); err != nil {
             return ctrl.Result{RequeueAfter: pol.Spec.QueueRule.PollInterval.Duration}, err
         }
+        applied = dec.DesiredFloor
+        // Stamp LastDecreaseTime only when the floor actually went down.
+        if dec.DesiredFloor < current {
+            pol.Status.LastDecreaseTime = &now
+        }
     }
 
     pol.Status.DesiredFloor = dec.DesiredFloor
-    pol.Status.AppliedFloor = dec.DesiredFloor
+    pol.Status.AppliedFloor = applied
     pol.Status.LastQueueDepth = snap.Queued
-    now := metav1.Now()
     pol.Status.LastReconcileTime = &now
-    _ = r.Status().Update(ctx, &pol)
+    if err := r.Status().Update(ctx, &pol); err != nil {
+        return ctrl.Result{}, err
+    }
 
     return ctrl.Result{RequeueAfter: pol.Spec.QueueRule.PollInterval.Duration}, nil
 }
@@ -2165,14 +2139,32 @@ func (r *WarmRunnerPolicyReconciler) adapterFor(t v1alpha1.Target) (adapter.Adap
 }
 ```
 
-Replace the `SetFloor` block in `Reconcile`:
+Replace the SetFloor block in `Reconcile` (preserving the cooldown stamp + `applied` tracking
+from the base reconcile, adding the `AdapterAvailable` condition):
 
 ```go
+now := metav1.Now()
+applied := current
 var setErr error
 if demErr == nil && dec.DesiredFloor != current {
     setErr = ad.SetFloor(ctx, ref, dec.DesiredFloor)
+    if setErr == nil {
+        applied = dec.DesiredFloor
+        if dec.DesiredFloor < current { // stamp only when the floor actually dropped
+            pol.Status.LastDecreaseTime = &now
+        }
+    }
 }
+setCondition(&pol, "DemandSourceAvailable", demErr == nil, errReason(demErr), errMsg(demErr))
 setCondition(&pol, "AdapterAvailable", setErr == nil, errReason(setErr), errMsg(setErr))
+
+pol.Status.DesiredFloor = dec.DesiredFloor
+pol.Status.AppliedFloor = applied
+pol.Status.LastQueueDepth = snap.Queued
+pol.Status.LastReconcileTime = &now
+if err := r.Status().Update(ctx, &pol); err != nil {
+    return ctrl.Result{}, err
+}
 ```
 
 - [ ] **Step 4: Run, expect pass**
@@ -2451,7 +2443,7 @@ git commit -m "test(controller): envtest end-to-end reconcile"
 
 ```yaml
 # examples/policy-arc.yaml
-apiVersion: warmrunners.io/v1alpha1
+apiVersion: autoscaling.warmrunners.io/v1alpha1
 kind: WarmRunnerPolicy
 metadata:
   name: example-arc
@@ -2487,7 +2479,7 @@ spec:
 
 ```yaml
 # examples/policy-garm.yaml
-apiVersion: warmrunners.io/v1alpha1
+apiVersion: autoscaling.warmrunners.io/v1alpha1
 kind: WarmRunnerPolicy
 metadata:
   name: example-garm
@@ -2689,40 +2681,38 @@ Use `gh release create v1.0.0 --generate-notes`.
 
 ---
 
-## Execution Amendments
+## Implementation notes (beyond this plan)
 
-Deviations from this plan discovered during implementation, recorded for honesty (the per-task
-snippets above are left as originally written; the code is the source of truth):
+Behaviour the shipped operator adds on top of the task code above. These are extensions, not
+corrections — the tasks remain the build sequence.
 
-1. **Adapter tests — name collision (Tasks 4.2/5.1).** The test helpers `arcGVK()` / `garmGVK()`
-   collide with the package-level vars `arcGVK` / `garmGVK` in the same package — the snippet as
-   written does not compile. Fixed by renaming the test helpers to `arcTestGVK` / `garmTestGVK`.
-   Implementation var names and all GVK strings unchanged.
+1. **Per-policy auth.** In production the reconciler resolves each policy's
+   `spec.github.auth.secretRef` to a token and constructs `demand.NewGitHubRESTPoller("https://api.github.com", token)`
+   per reconcile (the injectable `Demand` field is kept for tests). The token is trimmed
+   (`strings.TrimSpace`) — Secrets created via `kubectl --from-file` carry a trailing newline that
+   otherwise makes an invalid `Authorization` header. Missing secret → `DemandSourceAvailable=False`, no patch.
+   `cmd/main.go` wires the reconciler with `Scheduler: scheduler.NewHeuristic()` and `Demand: nil`.
 
-2. **Scheduler — dropped `fmt.go` wrapper (Task 2.3).** The plan offered the `fmtSscanf` indirection
-   as optional. Implementation imports `fmt` directly and calls `fmt.Sscanf` inline — simpler, no
-   behavioral change, one fewer file.
+2. **RBAC.** `+kubebuilder:rbac` markers on `Reconcile` grant get/list/watch on secrets and
+   get/update on the ARC/GARM resources; `make manifests` regenerates `config/rbac/role.yaml`.
 
-3. **Reconciler — two gaps filled (Phase 6).** The plan injected a single `Demand` source (works for
-   tests, but the operator could not authenticate per-policy or run). Filled:
-   - **Per-policy auth:** when `r.Demand == nil` (production), the reconciler resolves the policy's
-     `spec.github.auth.secretRef` to a token and builds `demand.NewGitHubRESTPoller("https://api.github.com", token)`
-     per reconcile. Missing secret → `DemandSourceAvailable=False`, no patch. The injectable
-     `Demand` field is preserved so the plan's tests pass unchanged.
-   - **`cmd/main.go` wiring:** reconciler constructed with `Scheduler: scheduler.NewHeuristic()`,
-     `Demand: nil`, registered via `SetupWithManager`.
-   - **RBAC markers** added on `Reconcile` for secrets (get/list/watch) and the ARC/GARM CRDs
-     (get/update); `make manifests` regenerates `config/rbac/role.yaml`.
+3. **Backend-max clamp.** `Adapter.GetMax` reads the backend's own `maxRunners`/`maxIdleRunners`;
+   the reconciler clamps `desired` to it so a `floor.max` larger than the backend cap can't produce
+   a rejected patch.
 
-4. **Reconciler — ginkgo scaffold placeholder (Phase 6).** The kubebuilder-scaffolded ginkgo test
-   created an empty-spec `WarmRunnerPolicy`, now rejected (HTTP 422) by the CRD's required-field
-   validation. Fixed the placeholder to build a valid policy + inject stubs. The real envtest
-   harness remains Phase 8 as planned.
+4. **Label-aware demand.** The poller counts individual jobs whose `runs-on` labels are a superset
+   of the policy labels (enumerate runs → jobs), so a label-scoped policy scales on its own queue,
+   not the whole repo. Trade-off: N+1 GitHub calls per poll — acceptable at 30s+ intervals.
 
-5. **Commit cadence.** Per the Commit Policy section above, commits are grouped per component
-   (~14 total) rather than one per task.
+5. **Distribution + CI.** A release workflow publishes the multi-arch image and the OCI Helm chart
+   to GHCR on a `v*` tag. Heavy e2e/chart workflows run nightly + on-demand (not every PR); fast
+   unit/envtest + lint gate PRs. Workflows use least-privilege `permissions`, concurrency-cancel,
+   and job timeouts. The `go` directive is pinned to 1.25 (newest the linter + Docker base support).
 
 ### Known limitations (v1.1 backlog)
 
 - **Overnight schedule windows** (`from` later than `to`, e.g. `22:00`→`06:00`) silently never match
   in `withinHHMM`. Not in v1 spec/tests. Add overnight support or CRD validation rejecting `to < from`.
+- **Conflicting policies** on the same backend CR are not detected in v1.0 (last writer wins).
+  Planned v1.1: a validating admission webhook.
+- **Org-level demand** not supported (repo-level only); `repository` is required.

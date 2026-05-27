@@ -16,7 +16,7 @@ resources:
     namespaced: true
   controller: true
   domain: warmrunners.io
-  group: warmrunners
+  group: autoscaling
   kind: WarmRunnerPolicy
   path: github.com/sarataha/warmrunners/api/v1alpha1
   version: v1alpha1
