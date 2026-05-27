@@ -22,7 +22,7 @@ func TestGitHubRESTPoller_CountsByStatus(t *testing.T) {
 			}(),
 			"workflow_runs": []any{},
 		}
-		json.NewEncoder(w).Encode(body)
+		_ = json.NewEncoder(w).Encode(body)
 	}))
 	defer srv.Close()
 
@@ -53,7 +53,7 @@ func TestGitHubRESTPoller_SendsAuthHeader(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		json.NewEncoder(w).Encode(map[string]any{"total_count": 0, "workflow_runs": []any{}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"total_count": 0, "workflow_runs": []any{}})
 	}))
 	defer srv.Close()
 

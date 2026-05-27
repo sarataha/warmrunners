@@ -124,7 +124,7 @@ func TestReconcile_DemandError_SetsCondition(t *testing.T) {
 	_ = cl.Get(context.Background(), types.NamespacedName{Name: "p", Namespace: "default"}, &got)
 	found := false
 	for _, c := range got.Status.Conditions {
-		if c.Type == "DemandSourceAvailable" && c.Status == "False" {
+		if c.Type == "DemandSourceAvailable" && c.Status == metav1.ConditionFalse {
 			found = true
 		}
 	}
@@ -190,7 +190,7 @@ func TestReconcile_AdapterError_SetsCondition(t *testing.T) {
 	_ = cl.Get(context.Background(), types.NamespacedName{Name: "p", Namespace: "default"}, &got)
 	found := false
 	for _, c := range got.Status.Conditions {
-		if c.Type == "AdapterAvailable" && c.Status == "False" {
+		if c.Type == "AdapterAvailable" && c.Status == metav1.ConditionFalse {
 			found = true
 		}
 	}
@@ -226,7 +226,7 @@ func TestReconcile_NilDemand_MissingSecret_SetsCondition(t *testing.T) {
 	_ = cl.Get(context.Background(), types.NamespacedName{Name: "p", Namespace: "default"}, &got)
 	found := false
 	for _, c := range got.Status.Conditions {
-		if c.Type == "DemandSourceAvailable" && c.Status == "False" {
+		if c.Type == "DemandSourceAvailable" && c.Status == metav1.ConditionFalse {
 			found = true
 		}
 	}

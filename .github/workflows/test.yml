@@ -2,7 +2,9 @@ name: Tests
 
 on:
   push:
+    paths-ignore: ['**.md', 'docs/**', '.claude/**']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**', '.claude/**']
 
 jobs:
   test:

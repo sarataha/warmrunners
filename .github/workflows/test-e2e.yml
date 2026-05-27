@@ -2,7 +2,11 @@ name: E2E Tests
 
 on:
   push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', '.claude/**']
   pull_request:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', '.claude/**']
 
 jobs:
   test-e2e:
