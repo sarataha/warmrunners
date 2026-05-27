@@ -1,6 +1,6 @@
 module github.com/sarataha/warmrunners
 
-go 1.26
+go 1.25
 
 require (
 	github.com/onsi/ginkgo/v2 v2.22.0
