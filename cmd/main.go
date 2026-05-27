@@ -37,6 +37,7 @@ import (
 
 	warmrunnersv1alpha1 "github.com/sarataha/warmrunners/api/v1alpha1"
 	"github.com/sarataha/warmrunners/internal/controller"
+	"github.com/sarataha/warmrunners/internal/scheduler"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -179,8 +180,10 @@ func main() {
 	}
 
 	if err := (&controller.WarmRunnerPolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Scheduler: scheduler.NewHeuristic(),
+		Demand:    nil, // resolved per-policy from the auth secretRef
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WarmRunnerPolicy")
 		os.Exit(1)

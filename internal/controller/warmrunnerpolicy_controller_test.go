@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	warmrunnersv1alpha1 "github.com/sarataha/warmrunners/api/v1alpha1"
+	"github.com/sarataha/warmrunners/internal/scheduler"
 )
 
 var _ = Describe("WarmRunnerPolicy Controller", func() {
@@ -51,7 +53,23 @@ var _ = Describe("WarmRunnerPolicy Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: warmrunnersv1alpha1.WarmRunnerPolicySpec{
+						GitHub: warmrunnersv1alpha1.GitHubConfig{
+							Owner:      "org",
+							Repository: "repo",
+							Labels:     []string{"self-hosted"},
+						},
+						Target: warmrunnersv1alpha1.Target{
+							Arc: &warmrunnersv1alpha1.ArcTarget{
+								RunnerSet: warmrunnersv1alpha1.RefNS{Name: "prod-runners", Namespace: "arc-system"},
+							},
+						},
+						Floor: warmrunnersv1alpha1.FloorRange{Min: 0, Max: 10},
+						QueueRule: warmrunnersv1alpha1.QueueRule{
+							PollInterval: metav1.Duration{Duration: time.Minute},
+							Cooldown:     metav1.Duration{Duration: time.Minute},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
@@ -69,8 +87,10 @@ var _ = Describe("WarmRunnerPolicy Controller", func() {
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &WarmRunnerPolicyReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:    k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				Scheduler: scheduler.NewHeuristic(),
+				Demand:    stubDemand{}, // avoids real GitHub calls in envtest
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
