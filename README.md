@@ -1,5 +1,10 @@
 # warmrunners
 
+[![Tests](https://github.com/sarataha/warmrunners/actions/workflows/test.yml/badge.svg)](https://github.com/sarataha/warmrunners/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/sarataha/warmrunners)](https://github.com/sarataha/warmrunners/releases)
+[![Go](https://img.shields.io/github/go-mod/go-version/sarataha/warmrunners)](go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Predictive warm-floor controller for self-hosted GitHub Actions runners.
 
 Reactive autoscalers ([ARC](https://github.com/actions/actions-runner-controller),
