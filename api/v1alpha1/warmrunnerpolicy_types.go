@@ -23,13 +23,18 @@ import (
 
 type GitHubConfig struct {
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=253
 	Owner string `json:"owner"`
 	// Repository is required: v1 supports repo-level polling only. An empty
 	// value would build an invalid org-level URL (/repos/owner//actions/runs).
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	Repository string `json:"repository"`
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
+	// +listType=atomic
+	// +kubebuilder:validation:items:MaxLength=64
 	Labels []string `json:"labels"`
 	Auth   AuthRef  `json:"auth"`
 }
@@ -47,7 +52,9 @@ type GarmTarget struct {
 }
 
 type RefNS struct {
-	Name      string `json:"name"`
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+	// +kubebuilder:validation:MaxLength=253
 	Namespace string `json:"namespace"`
 }
 
@@ -58,6 +65,7 @@ type Target struct {
 	Garm *GarmTarget `json:"garm,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="self.min <= self.max",message="min must be <= max"
 type FloorRange struct {
 	// +kubebuilder:validation:Minimum=0
 	Min int32 `json:"min"`
@@ -65,12 +73,22 @@ type FloorRange struct {
 	Max int32 `json:"max"`
 }
 
+// +kubebuilder:validation:XValidation:rule="self.from < self.to",message="from must be earlier than to"
 type ScheduleWindow struct {
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=7
+	// +listType=atomic
+	// +kubebuilder:validation:items:MaxLength=16
 	Days []string `json:"days"`
-	From string   `json:"from"` // "HH:MM"
-	To   string   `json:"to"`   // "HH:MM"
-	TZ   string   `json:"tz"`   // IANA name, e.g. "UTC", "Europe/London"
+	// +kubebuilder:validation:Pattern=`^([01][0-9]|2[0-3]):[0-5][0-9]$`
+	// +kubebuilder:validation:MaxLength=5
+	From string `json:"from"` // "HH:MM"
+	// +kubebuilder:validation:Pattern=`^([01][0-9]|2[0-3]):[0-5][0-9]$`
+	// +kubebuilder:validation:MaxLength=5
+	To string `json:"to"` // "HH:MM"
+	// +kubebuilder:validation:Pattern=`^[A-Za-z]+(?:/[A-Za-z0-9_+\-]+){0,2}$`
+	// +kubebuilder:validation:MaxLength=64
+	TZ string `json:"tz"` // IANA name, e.g. "UTC", "Europe/London"
 	// +kubebuilder:validation:Minimum=0
 	Base int32 `json:"base"`
 }
@@ -91,9 +109,10 @@ type QueueRule struct {
 }
 
 type WarmRunnerPolicySpec struct {
-	GitHub    GitHubConfig     `json:"github"`
-	Target    Target           `json:"target"`
-	Floor     FloorRange       `json:"floor"`
+	GitHub GitHubConfig `json:"github"`
+	Target Target       `json:"target"`
+	Floor  FloorRange   `json:"floor"`
+	// +kubebuilder:validation:MaxItems=64
 	Schedule  []ScheduleWindow `json:"schedule,omitempty"`
 	QueueRule QueueRule        `json:"queueRule"`
 }
@@ -106,15 +125,22 @@ type WarmRunnerPolicyStatus struct {
 	// LastDecreaseTime is when the warm-floor was last decreased. It feeds the
 	// scheduler's cooldown so decreases are rate-limited independently of the
 	// per-poll reconcile time.
-	LastDecreaseTime *metav1.Time       `json:"lastDecreaseTime,omitempty"`
-	Conditions       []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+	LastDecreaseTime *metav1.Time `json:"lastDecreaseTime,omitempty"`
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:path=warmrunnerpolicies,singular=warmrunnerpolicy,shortName=wrp,categories={warmrunners}
 // +kubebuilder:printcolumn:name="Desired",type=integer,JSONPath=`.status.desiredFloor`
 // +kubebuilder:printcolumn:name="Applied",type=integer,JSONPath=`.status.appliedFloor`
 // +kubebuilder:printcolumn:name="Queue",type=integer,JSONPath=`.status.lastQueueDepth`
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`
 type WarmRunnerPolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

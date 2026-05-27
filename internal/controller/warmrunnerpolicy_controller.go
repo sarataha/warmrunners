@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 )
 
 // githubBaseURL is the GitHub REST API base used when constructing a
@@ -51,6 +52,12 @@ type WarmRunnerPolicyReconciler struct {
 	// constructs a GitHub REST poller per reconcile.
 	Demand      demand.Source
 	AdapterFunc AdapterFactory
+	// MaxConcurrentReconciles bounds parallel reconciles for this controller.
+	// Zero means controller-runtime default (1).
+	MaxConcurrentReconciles int
+	// GitHubHTTPTimeout bounds each GitHub REST call. Zero falls back to the
+	// poller's built-in default (10s).
+	GitHubHTTPTimeout time.Duration
 }
 
 func (r *WarmRunnerPolicyReconciler) adapterFor(t v1alpha1.Target) (adapter.Adapter, adapter.Ref, bool) {
@@ -86,10 +93,14 @@ func (r *WarmRunnerPolicyReconciler) demandSource(ctx context.Context, pol *v1al
 	if !ok || len(tokenBytes) == 0 {
 		return nil, fmt.Errorf("auth secret %q missing key %q", sel.Name, sel.Key)
 	}
-	return demand.NewGitHubRESTPoller(githubBaseURL, string(tokenBytes)), nil
+	var opts []demand.Option
+	if r.GitHubHTTPTimeout > 0 {
+		opts = append(opts, demand.WithHTTPTimeout(r.GitHubHTTPTimeout))
+	}
+	return demand.NewGitHubRESTPoller(githubBaseURL, string(tokenBytes), opts...), nil
 }
 
-// +kubebuilder:rbac:groups=autoscaling.warmrunners.io,resources=warmrunnerpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=autoscaling.warmrunners.io,resources=warmrunnerpolicies,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=autoscaling.warmrunners.io,resources=warmrunnerpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=autoscaling.warmrunners.io,resources=warmrunnerpolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
@@ -114,17 +125,22 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if srcErr != nil {
 		// Could not build a demand source (e.g. missing secret). Surface the
 		// condition and hold last-known state — do NOT patch the backend.
-		setCondition(&pol, "DemandSourceAvailable", false, errReason(srcErr), errMsg(srcErr))
+		reconcileErrors.WithLabelValues(pol.Name, "demand_source").Inc()
+		setCondition(&pol, "DemandSourceAvailable", false, errReason(srcErr), errMsg(srcErr), pol.Generation)
 		now := metav1.Now()
 		pol.Status.LastReconcileTime = &now
 		if statusErr := r.Status().Update(ctx, &pol); statusErr != nil {
+			reconcileErrors.WithLabelValues(pol.Name, "status_update").Inc()
 			return ctrl.Result{}, statusErr
 		}
 		return ctrl.Result{RequeueAfter: pol.Spec.QueueRule.PollInterval.Duration}, nil
 	}
 
 	snap, demErr := src.CurrentDemand(ctx, pol.Spec.GitHub.Owner, pol.Spec.GitHub.Repository, pol.Spec.GitHub.Labels)
-	setCondition(&pol, "DemandSourceAvailable", demErr == nil, errReason(demErr), errMsg(demErr))
+	if demErr != nil {
+		reconcileErrors.WithLabelValues(pol.Name, "demand_source").Inc()
+	}
+	setCondition(&pol, "DemandSourceAvailable", demErr == nil, errReason(demErr), errMsg(demErr), pol.Generation)
 
 	current, _ := ad.GetFloor(ctx, ref)
 	var lastDec time.Time
@@ -149,7 +165,10 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			pol.Status.LastDecreaseTime = &now
 		}
 	}
-	setCondition(&pol, "AdapterAvailable", setErr == nil, errReason(setErr), errMsg(setErr))
+	if setErr != nil {
+		reconcileErrors.WithLabelValues(pol.Name, "adapter").Inc()
+	}
+	setCondition(&pol, "AdapterAvailable", setErr == nil, errReason(setErr), errMsg(setErr), pol.Generation)
 
 	// applied = what's actually on the backend now. On a demand or patch
 	// failure the floor was not changed, so it stays at current.
@@ -178,6 +197,7 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	// A failed status update (e.g. 409 conflict) must be retried, not dropped.
 	if statusErr != nil {
+		reconcileErrors.WithLabelValues(pol.Name, "status_update").Inc()
 		return ctrl.Result{}, statusErr
 	}
 
@@ -189,6 +209,7 @@ func (r *WarmRunnerPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.WarmRunnerPolicy{}).
 		Named("warmrunnerpolicy").
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.MaxConcurrentReconciles}).
 		Complete(r)
 }
 
@@ -206,7 +227,7 @@ func errMsg(err error) string {
 	return err.Error()
 }
 
-func setCondition(p *v1alpha1.WarmRunnerPolicy, ctype string, ok bool, reason, msg string) {
+func setCondition(p *v1alpha1.WarmRunnerPolicy, ctype string, ok bool, reason, msg string, generation int64) {
 	status := metav1.ConditionTrue
 	if !ok {
 		status = metav1.ConditionFalse
@@ -217,10 +238,13 @@ func setCondition(p *v1alpha1.WarmRunnerPolicy, ctype string, ok bool, reason, m
 			p.Status.Conditions[i].Reason = reason
 			p.Status.Conditions[i].Message = msg
 			p.Status.Conditions[i].LastTransitionTime = metav1.Now()
+			p.Status.Conditions[i].ObservedGeneration = generation
 			return
 		}
 	}
 	p.Status.Conditions = append(p.Status.Conditions, metav1.Condition{
-		Type: ctype, Status: status, Reason: reason, Message: msg, LastTransitionTime: metav1.Now(),
+		Type: ctype, Status: status, Reason: reason, Message: msg,
+		LastTransitionTime: metav1.Now(),
+		ObservedGeneration: generation,
 	})
 }
