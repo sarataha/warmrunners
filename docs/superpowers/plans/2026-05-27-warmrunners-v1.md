@@ -10,6 +10,38 @@
 
 ---
 
+## Commit Policy (overrides per-task commit steps)
+
+Tasks are the **work breakdown** — each is one small TDD step (write failing test → red →
+implement → green). But **commits are grouped per component**, NOT per task, to keep the public
+history clean and reviewable (~14 commits total, not ~40).
+
+Within a component: do all its tasks (each red→green), then make **one commit** when the whole
+component is green. The `git commit` step inside individual tasks is superseded by this mapping.
+Tasks whose test passes against already-written logic (e.g. 2.4, 2.6, 3.3, 6.4) do NOT get their
+own commit — they fold into the component commit.
+
+| # | Commit | Covers tasks | Message |
+|---|--------|--------------|---------|
+| 1 | go module | 0.1 | `chore: init go module` |
+| 2 | kubebuilder scaffold | 0.2, 0.3 | `chore: kubebuilder scaffold + WarmRunnerPolicy api` |
+| 3 | API types | 1.1, 1.2 | `feat(api): WarmRunnerPolicy types + Target.Kind` |
+| 4 | scheduler | 2.1–2.8 | `feat(scheduler): clock + queue-headroom heuristic with cooldown` |
+| 5 | demand source | 3.1–3.4 | `feat(demand): GitHub REST poller` |
+| 6 | ARC adapter | 4.1–4.3 | `feat(adapter): ARC adapter (minRunners)` |
+| 7 | GARM adapter | 5.1 | `feat(adapter): GARM adapter (minIdleRunners)` |
+| 8 | reconciler | 6.1–6.5 | `feat(controller): reconcile loop + status conditions` |
+| 9 | metrics | 7.1 | `feat(controller): prometheus metrics` |
+| 10 | integration | 8.1, 8.2 | `test(controller): envtest integration` |
+| 11 | examples | 9.1 | `docs(examples): sample policies` |
+| 12 | CI | 9.2 | `ci: vet + test + generated-file check` |
+| 13 | Helm | 9.3 | `feat(deploy): Helm chart` |
+| 14 | README + release | 9.4, 9.5 | `docs(readme): v1.0` + tag `v1.0.0` |
+
+Each component commit must be green (`go test ./... ` passes for that package) before committing.
+
+---
+
 ## File Structure
 
 ```
