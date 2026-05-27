@@ -53,10 +53,10 @@ More samples in [`examples/`](examples/) (ARC + GARM).
 ## Install
 
 ```sh
-helm install warmrunners ./dist/chart
+helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners --version 1.0.0
 ```
 
-Then create a `Secret` with a GitHub token and a `WarmRunnerPolicy` (see `examples/`).
+Then create a `Secret` with a GitHub token and a `WarmRunnerPolicy` (see [`examples/`](examples/)).
 
 ## Backends
 

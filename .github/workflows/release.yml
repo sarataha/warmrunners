@@ -1,0 +1,67 @@
+name: Release
+
+# On a semver tag: publish the multi-arch operator image and the Helm chart to
+# GHCR, generate the install manifest, and cut a GitHub release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # create the GitHub release
+  packages: write # push image + chart to GHCR
+
+jobs:
+  release:
+    name: publish image + chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Derive version
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push multi-arch image
+        run: |
+          make docker-buildx \
+            IMG=ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
+            PLATFORMS=linux/amd64,linux/arm64
+
+      - name: Package and push Helm chart (OCI)
+        run: |
+          # Pin the chart to this release's image tag and versions.
+          sed -i "s|tag: latest|tag: ${{ github.ref_name }}|" dist/chart/values.yaml
+          sed -i "s|^version:.*|version: ${{ steps.v.outputs.version }}|; s|^appVersion:.*|appVersion: \"${{ steps.v.outputs.version }}\"|" dist/chart/Chart.yaml
+          helm package dist/chart --destination /tmp/chart
+          helm push /tmp/chart/warmrunners-${{ steps.v.outputs.version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+
+      - name: Generate install manifest
+        run: make build-installer IMG=ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            dist/install.yaml \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            --notes-file .github/release-notes-header.md
