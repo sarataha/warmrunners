@@ -24,7 +24,6 @@ rules:
   resources:
   - warmrunnerpolicies
   verbs:
-  - create
   - delete
   - get
   - list

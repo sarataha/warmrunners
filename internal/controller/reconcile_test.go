@@ -371,3 +371,34 @@ func TestReconcile_NilDemand_MissingSecret_SetsCondition(t *testing.T) {
 		t.Fatalf("minRunners changed to %d on missing secret; want 0", v)
 	}
 }
+
+// Every status condition written by the reconciler must carry
+// ObservedGeneration matching the policy's metadata.Generation. This lets
+// clients tell stale conditions from current ones after a spec change.
+func TestReconcile_ConditionsCarryObservedGeneration(t *testing.T) {
+	sch := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(sch)
+	arc := newARC(0)
+	pol := newPolicy()
+	pol.Generation = 7
+	cl := fake.NewClientBuilder().WithScheme(sch).WithObjects(arc, pol).WithStatusSubresource(pol).Build()
+
+	r := &WarmRunnerPolicyReconciler{
+		Client: cl, Scheme: sch,
+		Scheduler: scheduler.NewHeuristic(),
+		Demand:    stubDemand{},
+	}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "p", Namespace: "default"}}); err != nil {
+		t.Fatal(err)
+	}
+	var got v1alpha1.WarmRunnerPolicy
+	_ = cl.Get(context.Background(), types.NamespacedName{Name: "p", Namespace: "default"}, &got)
+	if len(got.Status.Conditions) == 0 {
+		t.Fatalf("expected at least one status condition, got none")
+	}
+	for _, c := range got.Status.Conditions {
+		if c.ObservedGeneration != 7 {
+			t.Fatalf("condition %q has ObservedGeneration=%d, want 7", c.Type, c.ObservedGeneration)
+		}
+	}
+}
