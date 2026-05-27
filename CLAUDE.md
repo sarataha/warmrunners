@@ -14,6 +14,10 @@ zencargo-specific; never hardcode service names, labels, or schedules in code.
 
 - Go 1.26 (latest stable — hard rule: always latest stable unless justified)
 - kubebuilder 4.9.0 / controller-runtime (latest, scaffolded by kubebuilder)
+
+**Version policy (hard rule):** every dependency, tool, base image, GitHub Action, and Helm
+`appVersion` pins to the **latest stable** release. Any exception must be justified in the commit
+message. Don't copy stale versions from examples — check current latest before adding.
 - `unstructured.Unstructured` for ARC + GARM CRDs (no third-party vendoring)
 - `httptest` for GitHub stubs · `envtest` for integration · `client/fake` for unit
 - `prometheus/client_golang` for metrics
