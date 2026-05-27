@@ -6,10 +6,18 @@ on:
   pull_request:
     paths-ignore: ['**.md', 'docs/**', '.claude/**']
 
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    name: Run on Ubuntu
+    name: unit + envtest
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
@@ -18,6 +26,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
 
       - name: Running Tests
         run: |

@@ -1,17 +1,20 @@
 name: Test Chart
 
+# Heavy (Kind cluster + image build + Helm install): nightly and on demand,
+# not every PR. PRs gate on the fast Tests + Lint suite.
 on:
-  push:
-    branches: [main]
-    paths-ignore: ['**.md', 'docs/**', '.claude/**']
-  pull_request:
-    branches: [main]
-    paths-ignore: ['**.md', 'docs/**', '.claude/**']
+  schedule:
+    - cron: "30 3 * * *" # nightly 03:30 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  test-e2e:
-    name: Run on Ubuntu
+  test-chart:
+    name: chart (kind)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
