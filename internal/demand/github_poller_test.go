@@ -118,7 +118,10 @@ func TestGitHubRESTPoller_SendsAuthHeader(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewGitHubRESTPoller(srv.URL, "secret-token")
+	// Token carries a trailing newline (as it does when loaded from a Secret
+	// created via `kubectl --from-file`). It must be trimmed, or the header is
+	// rejected with "invalid header field value". Regression: caught in live test.
+	p := NewGitHubRESTPoller(srv.URL, "secret-token\n")
 	_, err := p.CurrentDemand(context.Background(), "org", "repo", []string{"self-hosted"})
 	if err != nil {
 		t.Fatal(err)

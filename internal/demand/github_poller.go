@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -17,11 +18,14 @@ type GitHubRESTPoller struct {
 }
 
 func NewGitHubRESTPoller(baseURL, token string) *GitHubRESTPoller {
-	// FIX D: bound every GitHub call so a hung connection can't stall reconciles.
 	return &GitHubRESTPoller{
 		baseURL: baseURL,
-		token:   token,
-		client:  &http.Client{Timeout: 10 * time.Second},
+		// Trim whitespace: tokens loaded from Secrets created via
+		// `kubectl --from-file` or `echo` carry a trailing newline, which makes
+		// an invalid Authorization header ("invalid header field value").
+		token: strings.TrimSpace(token),
+		// Bound every call so a hung connection can't stall reconciles.
+		client: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
