@@ -151,16 +151,19 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 	setCondition(&pol, "AdapterAvailable", setErr == nil, errReason(setErr), errMsg(setErr))
 
-	pol.Status.DesiredFloor = dec.DesiredFloor
-	pol.Status.AppliedFloor = dec.DesiredFloor
-	pol.Status.LastQueueDepth = snap.Queued
-	pol.Status.LastReconcileTime = &now
-	statusErr := r.Status().Update(ctx, &pol)
-
+	// applied = what's actually on the backend now. On a demand or patch
+	// failure the floor was not changed, so it stays at current.
 	applied := dec.DesiredFloor
 	if demErr != nil || setErr != nil {
 		applied = current
 	}
+
+	pol.Status.DesiredFloor = dec.DesiredFloor
+	pol.Status.AppliedFloor = applied
+	pol.Status.LastQueueDepth = snap.Queued
+	pol.Status.LastReconcileTime = &now
+	statusErr := r.Status().Update(ctx, &pol)
+
 	labels := []string{pol.Name, pol.Spec.Target.Kind()}
 	desiredFloor.WithLabelValues(labels...).Set(float64(dec.DesiredFloor))
 	appliedFloor.WithLabelValues(labels...).Set(float64(applied))
