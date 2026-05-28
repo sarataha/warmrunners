@@ -29,3 +29,8 @@ spec:
       - { whenQueueAtLeast: 5,  addRunners: 3 }
       - { whenQueueAtLeast: 15, addRunners: 8 }
     cooldown: 2m
+  # spec.predictor — codebase-aware Predictor (v0.2.0). Optional; omit to disable.
+  # predictor:
+  #   enabled: true
+  #   workflowRefreshInterval: 5m
+  #   maxRunsPerPoll: 50

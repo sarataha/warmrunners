@@ -20,8 +20,15 @@ controller polls the GitHub REST API for queue depth and sets the backend's warm
 (`minRunners` for ARC, `minIdleRunners` for GARM) to:
 
 ```
-desiredFloor = clamp(scheduleBase + queueHeadroom, floor.min, floor.max)
+desiredFloor = clamp(max(scheduleBase + queueHeadroom, predictedContribution),
+                     floor.min, floor.max)
 ```
+
+`predictedContribution` is the codebase-aware Predictor (v0.2.0): for each active
+`workflow_run`, warmrunners fetches the workflow YAML at the run's `head_sha` and walks the
+`needs:` graph to find jobs whose upstream is still in flight. Their `runs-on` labels become
+the predicted demand — so the downstream pool (e.g. GPU) is warm by the time those jobs queue.
+The Predictor is on by default; turn it off per-policy with `spec.predictor.enabled: false`.
 
 Floor decreases are rate-limited by a cooldown. The controller never deletes runners — it only
 moves the floor; the backend drains naturally.

@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -40,7 +41,9 @@ import (
 
 	warmrunnersv1alpha1 "github.com/sarataha/warmrunners/api/v1alpha1"
 	"github.com/sarataha/warmrunners/internal/controller"
+	"github.com/sarataha/warmrunners/internal/predictor"
 	"github.com/sarataha/warmrunners/internal/scheduler"
+	"github.com/sarataha/warmrunners/internal/version"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -184,6 +187,35 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Predictor (v0.2.0). One *WorkflowNeedsGraph per process is shared
+	// across all WarmRunnerPolicy reconciles — the per-policy auth context
+	// is supplied through the request transport, not here (the v0.2.0 cut
+	// uses unauthenticated requests for public repos; per-policy auth flows
+	// in a later patch alongside the reactive poller's secret handling).
+	//
+	// TODO(v0.2.x): per-policy MaxRunsPerPoll plumbing. Today the
+	// constructor takes a process-global cap (0 = DefaultRunsCap = 50).
+	predictorHTTPClient := &http.Client{Timeout: githubHTTPTimeout}
+	predictorFetcher := predictor.NewWorkflowFetcher(predictorHTTPClient, version.Version)
+	predictorImpl := predictor.NewWorkflowNeedsGraph(predictorHTTPClient, predictorFetcher, 0).
+		WithHooks(predictor.Hooks{
+			// The {policy} label is intentionally dropped from
+			// warmrunners_workflow_yaml_fetch_total — the predictor is
+			// shared across all policies, so attaching a policy label
+			// here would require moving construction into the reconciler.
+			// See metrics.go for the rationale.
+			OnYAMLFetch: func(result string) {
+				controller.RecordWorkflowYAMLFetch(result)
+			},
+			OnDynamicSkipped: func(_ string) {
+				// All dynamic-skip reasons collapse to one counter label
+				// in v0.2.0. The reason granularity stays available via
+				// logs; promoting it to a metric label costs cardinality
+				// for little operator value.
+				controller.RecordWorkflowYAMLFetch("dynamic_skipped")
+			},
+		})
+
 	if err := (&controller.WarmRunnerPolicyReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
@@ -191,6 +223,7 @@ func main() {
 		Demand:                  nil, // resolved per-policy from the auth secretRef
 		MaxConcurrentReconciles: maxConcurrentReconciles,
 		GitHubHTTPTimeout:       githubHTTPTimeout,
+		Predictor:               predictorImpl,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WarmRunnerPolicy")
 		os.Exit(1)
