@@ -184,7 +184,7 @@ func TestPredict_TwoStageStage2Imminent(t *testing.T) {
 	fs.serveYAML(".github/workflows/two_stage.yml", loadTestdata(t, "two_stage.yml"))
 
 	g := newGraph(t, fs, 0)
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestPredict_Stage2Materialized(t *testing.T) {
 	fs.serveYAML(".github/workflows/two_stage.yml", loadTestdata(t, "two_stage.yml"))
 
 	g := newGraph(t, fs, 0)
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestPredict_MultipleRunsContribute(t *testing.T) {
 	fs.serveYAML(".github/workflows/two_stage_large.yml", loadTestdata(t, "two_stage_large.yml"))
 
 	g := newGraph(t, fs, 0)
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestPredict_MatrixExpansion(t *testing.T) {
 	fs.serveYAML(".github/workflows/matrix_simple.yml", loadTestdata(t, "matrix_simple.yml"))
 
 	g := newGraph(t, fs, 0)
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestPredict_DynamicRunsOnSkipped(t *testing.T) {
 		skipReasons = append(skipReasons, r)
 	}})
 
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestPredict_LocalReusableRecurse(t *testing.T) {
 	fs.serveYAML(".github/workflows/inner.yml", loadTestdata(t, "inner.yml"))
 
 	g := newGraph(t, fs, 0)
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestPredict_RemoteReusableSkipped(t *testing.T) {
 		reasons = append(reasons, r)
 	}})
 
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -386,7 +386,7 @@ func TestPredict_YAMLNotFoundDropsRun(t *testing.T) {
 	fs.serveYAML(".github/workflows/two_stage.yml", loadTestdata(t, "two_stage.yml"))
 
 	g := newGraph(t, fs, 0)
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -410,7 +410,7 @@ func TestPredict_JobsEndpointErrorDropsRun(t *testing.T) {
 	fs.serveYAML(".github/workflows/two_stage.yml", loadTestdata(t, "two_stage.yml"))
 
 	g := newGraph(t, fs, 0)
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestPredict_RunsListingErrorFatal(t *testing.T) {
 	})
 
 	g := newGraph(t, fs, 0)
-	_, err := g.Predict(context.Background(), "o", "r")
+	_, err := g.Predict(context.Background(), "o", "r", "")
 	if err == nil {
 		t.Fatal("expected error from runs listing failure, got nil")
 	}
@@ -458,7 +458,7 @@ func TestPredict_RunsCapLimitsFanOut(t *testing.T) {
 	fs.serveYAML(".github/workflows/two_stage.yml", loadTestdata(t, "two_stage.yml"))
 
 	g := newGraph(t, fs, 1)
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -500,7 +500,7 @@ jobs:
 		reasons = append(reasons, r)
 	}})
 
-	_, err := g.Predict(context.Background(), "o", "r")
+	_, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -536,7 +536,7 @@ func TestPredict_ReusableCycle(t *testing.T) {
 		reasons = append(reasons, r)
 	}})
 
-	_, err := g.Predict(context.Background(), "o", "r")
+	_, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -579,7 +579,7 @@ jobs:
 	fs.serveYAML(".github/workflows/group.yml", yamlBody)
 
 	g := newGraph(t, fs, 0)
-	pred, err := g.Predict(context.Background(), "o", "r")
+	pred, err := g.Predict(context.Background(), "o", "r", "")
 	if err != nil {
 		t.Fatalf("Predict: %v", err)
 	}
@@ -608,3 +608,104 @@ func TestNewWorkflowNeedsGraph_DefaultRunsCap(t *testing.T) {
 // itoa is a tiny helper to avoid importing strconv only for fmt.Sprintf
 // usage in the depth test (we already import fmt).
 func itoa(i int) string { return fmt.Sprintf("%d", i) }
+
+// authRecorder captures the Authorization header observed at each of the
+// three predictor paths: runs listing, jobs listing, contents (YAML) fetch.
+// Concurrent access is guarded so the test can read after Predict returns
+// without racing the in-flight handlers.
+type authRecorder struct {
+	mu           sync.Mutex
+	runsAuth     string
+	jobsAuth     string
+	contentsAuth string
+	runsSeen     bool
+	jobsSeen     bool
+	contentsSeen bool
+}
+
+func (a *authRecorder) get() (string, string, string, bool, bool, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.runsAuth, a.jobsAuth, a.contentsAuth, a.runsSeen, a.jobsSeen, a.contentsSeen
+}
+
+// newAuthFakeServer wires a fakeServer with handlers across all three paths
+// that record the inbound Authorization header into ar.
+func newAuthFakeServer(t *testing.T, ar *authRecorder) *fakeServer {
+	t.Helper()
+	fs := newFakeServer(t)
+	fs.handle("/repos/o/r/actions/runs", func(w http.ResponseWriter, r *http.Request) {
+		ar.mu.Lock()
+		ar.runsAuth = r.Header.Get("Authorization")
+		ar.runsSeen = true
+		ar.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		if r.URL.Query().Get("status") == "in_progress" {
+			_, _ = w.Write([]byte(runsListJSON(runRef{ID: 1, Path: ".github/workflows/two_stage.yml", HeadSHA: "deadbeef"})))
+			return
+		}
+		_, _ = w.Write([]byte(`{"workflow_runs":[]}`))
+	})
+	fs.handle("/repos/o/r/actions/runs/1/jobs", func(w http.ResponseWriter, r *http.Request) {
+		ar.mu.Lock()
+		ar.jobsAuth = r.Header.Get("Authorization")
+		ar.jobsSeen = true
+		ar.mu.Unlock()
+		_, _ = w.Write([]byte(jobsListJSON("stage1")))
+	})
+	// Hand-write the contents handler so we observe the Authorization header
+	// at the YAML fetch path (the shared yamlRoutes mux does not).
+	fs.handle("/repos/o/r/contents/", func(w http.ResponseWriter, r *http.Request) {
+		ar.mu.Lock()
+		ar.contentsAuth = r.Header.Get("Authorization")
+		ar.contentsSeen = true
+		ar.mu.Unlock()
+		_, _ = w.Write(loadTestdata(t, "two_stage.yml"))
+	})
+	return fs
+}
+
+// Predict carries the per-call token through to every HTTP path it uses:
+// runs listing, jobs listing, and the YAML fetch via WorkflowFetcher.
+func TestPredict_AuthorizationHeader_SetOnAllPaths(t *testing.T) {
+	ar := &authRecorder{}
+	fs := newAuthFakeServer(t, ar)
+	g := newGraph(t, fs, 0)
+
+	if _, err := g.Predict(context.Background(), "o", "r", "tok-xyz"); err != nil {
+		t.Fatalf("Predict: %v", err)
+	}
+	runs, jobs, contents, runsSeen, jobsSeen, contentsSeen := ar.get()
+	if !runsSeen || !jobsSeen || !contentsSeen {
+		t.Fatalf("expected all three paths to be hit; runs=%v jobs=%v contents=%v", runsSeen, jobsSeen, contentsSeen)
+	}
+	const want = "Bearer tok-xyz"
+	if runs != want {
+		t.Errorf("runs Authorization = %q, want %q", runs, want)
+	}
+	if jobs != want {
+		t.Errorf("jobs Authorization = %q, want %q", jobs, want)
+	}
+	if contents != want {
+		t.Errorf("contents Authorization = %q, want %q", contents, want)
+	}
+}
+
+// An empty token must NOT set the Authorization header on any path. This
+// preserves the v0.2.0 behavior for unauthenticated public-repo polling.
+func TestPredict_AuthorizationHeader_OmittedWhenTokenEmpty(t *testing.T) {
+	ar := &authRecorder{}
+	fs := newAuthFakeServer(t, ar)
+	g := newGraph(t, fs, 0)
+
+	if _, err := g.Predict(context.Background(), "o", "r", ""); err != nil {
+		t.Fatalf("Predict: %v", err)
+	}
+	runs, jobs, contents, runsSeen, jobsSeen, contentsSeen := ar.get()
+	if !runsSeen || !jobsSeen || !contentsSeen {
+		t.Fatalf("expected all three paths to be hit; runs=%v jobs=%v contents=%v", runsSeen, jobsSeen, contentsSeen)
+	}
+	if runs != "" || jobs != "" || contents != "" {
+		t.Fatalf("Authorization should be empty on all paths; runs=%q jobs=%q contents=%q", runs, jobs, contents)
+	}
+}

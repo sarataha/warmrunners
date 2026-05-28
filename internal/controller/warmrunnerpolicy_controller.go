@@ -99,23 +99,60 @@ func (r *WarmRunnerPolicyReconciler) demandSource(ctx context.Context, pol *v1al
 	if r.Demand != nil {
 		return r.Demand, nil
 	}
-	sel := pol.Spec.GitHub.Auth.SecretRef
-	if sel.Name == "" || sel.Key == "" {
-		return nil, fmt.Errorf("github auth secretRef is incomplete (name=%q key=%q)", sel.Name, sel.Key)
-	}
-	var secret corev1.Secret
-	if err := r.Get(ctx, types.NamespacedName{Name: sel.Name, Namespace: pol.Namespace}, &secret); err != nil {
-		return nil, fmt.Errorf("resolving auth secret %q: %w", sel.Name, err)
-	}
-	tokenBytes, ok := secret.Data[sel.Key]
-	if !ok || len(tokenBytes) == 0 {
-		return nil, fmt.Errorf("auth secret %q missing key %q", sel.Name, sel.Key)
+	token, err := r.resolveAuthToken(ctx, pol)
+	if err != nil {
+		return nil, err
 	}
 	var opts []demand.Option
 	if r.GitHubHTTPTimeout > 0 {
 		opts = append(opts, demand.WithHTTPTimeout(r.GitHubHTTPTimeout))
 	}
-	return demand.NewGitHubRESTPoller(githubBaseURL, string(tokenBytes), opts...), nil
+	return demand.NewGitHubRESTPoller(githubBaseURL, token, opts...), nil
+}
+
+// resolveAuthToken reads the GitHub auth token from the policy's referenced
+// Secret. Returns a clean error when the secretRef is incomplete, the Secret
+// is missing, or the key is absent/empty. The bytes are returned verbatim
+// (no whitespace trimming) — both downstream consumers (poller, predictor)
+// trim at the use site.
+func (r *WarmRunnerPolicyReconciler) resolveAuthToken(ctx context.Context, pol *v1alpha1.WarmRunnerPolicy) (string, error) {
+	sel := pol.Spec.GitHub.Auth.SecretRef
+	if sel.Name == "" || sel.Key == "" {
+		return "", fmt.Errorf("github auth secretRef is incomplete (name=%q key=%q)", sel.Name, sel.Key)
+	}
+	var secret corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{Name: sel.Name, Namespace: pol.Namespace}, &secret); err != nil {
+		return "", fmt.Errorf("resolving auth secret %q: %w", sel.Name, err)
+	}
+	tokenBytes, ok := secret.Data[sel.Key]
+	if !ok || len(tokenBytes) == 0 {
+		return "", fmt.Errorf("auth secret %q missing key %q", sel.Name, sel.Key)
+	}
+	return string(tokenBytes), nil
+}
+
+// predictorToken returns the GitHub token to pass to Predictor.Predict.
+//
+// Production path (r.Demand == nil): the same resolver as demandSource is
+// used so a misconfigured Secret surfaces once, consistently, as a
+// PredictorAvailable=False condition.
+//
+// Test path (r.Demand != nil): Secret resolution is best-effort. When the
+// referenced Secret resolves cleanly we still forward the token (so an
+// integration test can assert the token reaches the predictor stub); when
+// it does not (most unit tests don't create a Secret) we silently fall
+// back to an empty token rather than failing reconcile. This keeps the
+// existing stubDemand-based tests passing while letting a single
+// Secret-bearing test verify the wiring.
+func (r *WarmRunnerPolicyReconciler) predictorToken(ctx context.Context, pol *v1alpha1.WarmRunnerPolicy) (string, error) {
+	if r.Demand == nil {
+		return r.resolveAuthToken(ctx, pol)
+	}
+	tok, err := r.resolveAuthToken(ctx, pol)
+	if err != nil {
+		return "", nil
+	}
+	return tok, nil
 }
 
 // +kubebuilder:rbac:groups=autoscaling.warmrunners.io,resources=warmrunnerpolicies,verbs=get;list;watch;update;patch;delete
@@ -305,7 +342,17 @@ func (r *WarmRunnerPolicyReconciler) computePredicted(
 		return 0, nil, nil, nil
 	}
 
-	pred, err := r.Predictor.Predict(ctx, pol.Spec.GitHub.Owner, pol.Spec.GitHub.Repository)
+	// Resolve the policy's GitHub token so the predictor can authenticate
+	// its REST calls. v0.2.0 shipped without this and observed 404s on
+	// private/rate-limited repos (predictor saw the repo as unauthenticated
+	// even though the reactive poller had the token). v0.2.1 plumbs the
+	// per-policy token through Predict; a resolution failure surfaces as
+	// PredictorAvailable=False just like a Predict error.
+	token, terr := r.predictorToken(ctx, pol)
+	if terr != nil {
+		return 0, nil, nil, terr
+	}
+	pred, err := r.Predictor.Predict(ctx, pol.Spec.GitHub.Owner, pol.Spec.GitHub.Repository, token)
 	if err != nil {
 		return 0, nil, nil, err
 	}

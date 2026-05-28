@@ -61,7 +61,7 @@ type Prediction struct {
 // (sub-second under cache hits); errors are returned verbatim so the caller
 // can surface them as a condition without retry coupling.
 type Predictor interface {
-	Predict(ctx context.Context, owner, repository string) (Prediction, error)
+	Predict(ctx context.Context, owner, repository, token string) (Prediction, error)
 }
 
 // LabelSetKey returns a deterministic, order-independent key for a runs-on

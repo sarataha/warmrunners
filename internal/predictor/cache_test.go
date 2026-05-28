@@ -112,7 +112,7 @@ func TestWorkflowFetcher_ETagRoundtrip(t *testing.T) {
 
 	f := newTestFetcher(t, srv, &recordingTimer{})
 
-	b1, err := f.Fetch(context.Background(), "o", "r", "p.yml", "sha")
+	b1, err := f.Fetch(context.Background(), "o", "r", "p.yml", "sha", "")
 	if err != nil {
 		t.Fatalf("first fetch: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestWorkflowFetcher_ETagRoundtrip(t *testing.T) {
 		t.Fatalf("first body = %q, want yaml-body", b1)
 	}
 
-	b2, err := f.Fetch(context.Background(), "o", "r", "p.yml", "sha")
+	b2, err := f.Fetch(context.Background(), "o", "r", "p.yml", "sha", "")
 	if err != nil {
 		t.Fatalf("second fetch: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestWorkflowFetcher_RepeatedSameKey(t *testing.T) {
 
 	f := newTestFetcher(t, srv, &recordingTimer{})
 	for i := 0; i < 5; i++ {
-		b, err := f.Fetch(context.Background(), "o", "r", "p", "ref")
+		b, err := f.Fetch(context.Background(), "o", "r", "p", "ref", "")
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
@@ -182,7 +182,7 @@ func TestWorkflowFetcher_DistinctKeys(t *testing.T) {
 	}
 	seen := make(map[string]string)
 	for _, k := range keys {
-		b, err := f.Fetch(context.Background(), k.o, k.r, k.p, k.ref)
+		b, err := f.Fetch(context.Background(), k.o, k.r, k.p, k.ref, "")
 		if err != nil {
 			t.Fatalf("%+v: %v", k, err)
 		}
@@ -211,7 +211,7 @@ func TestWorkflowFetcher_LRUEviction(t *testing.T) {
 	ctx := context.Background()
 	mustFetch := func(p string) {
 		t.Helper()
-		if _, err := f.Fetch(ctx, "o", "r", p, "sha"); err != nil {
+		if _, err := f.Fetch(ctx, "o", "r", p, "sha", ""); err != nil {
 			t.Fatalf("fetch %s: %v", p, err)
 		}
 	}
@@ -242,7 +242,7 @@ func TestWorkflowFetcher_NotFound(t *testing.T) {
 	defer srv.Close()
 	f := newTestFetcher(t, srv, &recordingTimer{})
 
-	_, err := f.Fetch(context.Background(), "o", "r", "missing.yml", "sha")
+	_, err := f.Fetch(context.Background(), "o", "r", "missing.yml", "sha", "")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -271,7 +271,7 @@ func TestWorkflowFetcher_RetriesOn5xx(t *testing.T) {
 	rt := &recordingTimer{}
 	f := newTestFetcher(t, srv, rt)
 
-	b, err := f.Fetch(context.Background(), "o", "r", "p", "s")
+	b, err := f.Fetch(context.Background(), "o", "r", "p", "s", "")
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -298,7 +298,7 @@ func TestWorkflowFetcher_ExhaustsRetries(t *testing.T) {
 	rt := &recordingTimer{}
 	f := newTestFetcher(t, srv, rt)
 
-	_, err := f.Fetch(context.Background(), "o", "r", "p", "s")
+	_, err := f.Fetch(context.Background(), "o", "r", "p", "s", "")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -325,7 +325,7 @@ func TestWorkflowFetcher_RetryAfterHonored(t *testing.T) {
 	rt := &recordingTimer{}
 	f := newTestFetcher(t, srv, rt)
 
-	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s"); err != nil {
+	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s", ""); err != nil {
 		t.Fatal(err)
 	}
 	waits := rt.recorded()
@@ -354,7 +354,7 @@ func TestWorkflowFetcher_RetryAfterZeroFallsBackToBackoff(t *testing.T) {
 	// Use a slightly larger base delay (still tiny) so the backoff is observable.
 	f := newTestFetcher(t, srv, rt, WithBaseDelay(1*time.Millisecond))
 
-	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s"); err != nil {
+	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s", ""); err != nil {
 		t.Fatal(err)
 	}
 	waits := rt.recorded()
@@ -380,7 +380,7 @@ func TestWorkflowFetcher_ContextCancelDuringSleep(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := f.Fetch(ctx, "o", "r", "p", "s")
+		_, err := f.Fetch(ctx, "o", "r", "p", "s", "")
 		done <- err
 	}()
 
@@ -417,11 +417,67 @@ func TestWorkflowFetcher_UserAgent(t *testing.T) {
 	}))
 	defer srv.Close()
 	f := newTestFetcher(t, srv, &recordingTimer{})
-	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s"); err != nil {
+	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s", ""); err != nil {
 		t.Fatal(err)
 	}
 	if ua != "warmrunners/test" {
 		t.Fatalf("User-Agent = %q, want warmrunners/test", ua)
+	}
+}
+
+// Test: Authorization header is set when a non-empty token is passed.
+func TestWorkflowFetcher_AuthorizationHeader_SetWhenTokenProvided(t *testing.T) {
+	var auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		w.Header().Set("ETag", `"x"`)
+		_, _ = w.Write([]byte("k"))
+	}))
+	defer srv.Close()
+	f := newTestFetcher(t, srv, &recordingTimer{})
+	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s", "tok-abc"); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer tok-abc" {
+		t.Fatalf("Authorization = %q, want %q", auth, "Bearer tok-abc")
+	}
+}
+
+// Test: Authorization header is NOT set when token is empty.
+func TestWorkflowFetcher_AuthorizationHeader_OmittedWhenTokenEmpty(t *testing.T) {
+	var auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		w.Header().Set("ETag", `"x"`)
+		_, _ = w.Write([]byte("k"))
+	}))
+	defer srv.Close()
+	f := newTestFetcher(t, srv, &recordingTimer{})
+	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s", ""); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "" {
+		t.Fatalf("Authorization = %q, want empty (no token)", auth)
+	}
+}
+
+// Test: token whitespace (leading/trailing newline) is trimmed before being
+// placed in the Authorization header. Mirrors the v0.1.x poller fix for
+// kubectl --from-file / echo-style Secret payloads.
+func TestWorkflowFetcher_AuthorizationHeader_TrimsTokenWhitespace(t *testing.T) {
+	var auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		w.Header().Set("ETag", `"x"`)
+		_, _ = w.Write([]byte("k"))
+	}))
+	defer srv.Close()
+	f := newTestFetcher(t, srv, &recordingTimer{})
+	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s", "  tok-trim\n"); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer tok-trim" {
+		t.Fatalf("Authorization = %q, want %q (trimmed)", auth, "Bearer tok-trim")
 	}
 }
 
@@ -435,7 +491,7 @@ func TestWorkflowFetcher_AcceptHeader(t *testing.T) {
 	}))
 	defer srv.Close()
 	f := newTestFetcher(t, srv, &recordingTimer{})
-	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s"); err != nil {
+	if _, err := f.Fetch(context.Background(), "o", "r", "p", "s", ""); err != nil {
 		t.Fatal(err)
 	}
 	if accept != "application/vnd.github.raw" {
