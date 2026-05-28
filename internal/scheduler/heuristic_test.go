@@ -62,59 +62,16 @@ func TestHeuristic_OutsideWindow_ReturnsMin(t *testing.T) {
 	}
 }
 
-func TestHeuristic_QueueHeadroom_HighestTierWins(t *testing.T) {
-	h := NewHeuristic()
-	spec := v1alpha1.WarmRunnerPolicySpec{
-		Floor: v1alpha1.FloorRange{Min: 0, Max: 50},
-		Schedule: []v1alpha1.ScheduleWindow{{
-			Days: []string{"Wed"}, From: "08:00", To: "19:00", TZ: "UTC", Base: 3,
-		}},
-		QueueRule: v1alpha1.QueueRule{
-			Cooldown: metav1.Duration{Duration: time.Minute},
-			Headroom: []v1alpha1.HeadroomTier{
-				{WhenQueueAtLeast: 5, AddRunners: 3},
-				{WhenQueueAtLeast: 15, AddRunners: 8},
-			},
-		},
-	}
-	// queue 20 → highest tier (15) wins → base 3 + 8 = 11
-	got := h.Decide(spec, mustParseTime(t, "2026-05-27T10:00:00Z"), Demand{Queued: 20}, 0, time.Time{})
-	if got.DesiredFloor != 11 {
-		t.Fatalf("DesiredFloor = %d, want 11", got.DesiredFloor)
-	}
-}
-
-func TestHeuristic_QueueHeadroom_NoTierMatches(t *testing.T) {
-	h := NewHeuristic()
-	spec := v1alpha1.WarmRunnerPolicySpec{
-		Floor: v1alpha1.FloorRange{Min: 0, Max: 50},
-		Schedule: []v1alpha1.ScheduleWindow{{
-			Days: []string{"Wed"}, From: "08:00", To: "19:00", TZ: "UTC", Base: 3,
-		}},
-		QueueRule: v1alpha1.QueueRule{
-			Cooldown: metav1.Duration{Duration: time.Minute},
-			Headroom: []v1alpha1.HeadroomTier{{WhenQueueAtLeast: 10, AddRunners: 5}},
-		},
-	}
-	got := h.Decide(spec, mustParseTime(t, "2026-05-27T10:00:00Z"), Demand{Queued: 3}, 0, time.Time{})
-	if got.DesiredFloor != 3 {
-		t.Fatalf("DesiredFloor = %d, want 3", got.DesiredFloor)
-	}
-}
-
 func TestHeuristic_ClampToMax(t *testing.T) {
 	h := NewHeuristic()
 	spec := v1alpha1.WarmRunnerPolicySpec{
 		Floor: v1alpha1.FloorRange{Min: 0, Max: 5},
 		Schedule: []v1alpha1.ScheduleWindow{{
-			Days: []string{"Wed"}, From: "08:00", To: "19:00", TZ: "UTC", Base: 3,
+			Days: []string{"Wed"}, From: "08:00", To: "19:00", TZ: "UTC", Base: 100,
 		}},
-		QueueRule: v1alpha1.QueueRule{
-			Cooldown: metav1.Duration{Duration: time.Minute},
-			Headroom: []v1alpha1.HeadroomTier{{WhenQueueAtLeast: 1, AddRunners: 100}},
-		},
+		QueueRule: v1alpha1.QueueRule{Cooldown: metav1.Duration{Duration: time.Minute}},
 	}
-	got := h.Decide(spec, mustParseTime(t, "2026-05-27T10:00:00Z"), Demand{Queued: 50}, 0, time.Time{})
+	got := h.Decide(spec, mustParseTime(t, "2026-05-27T10:00:00Z"), Demand{}, 0, time.Time{})
 	if got.DesiredFloor != 5 {
 		t.Fatalf("DesiredFloor = %d, want 5 (clamped to Max)", got.DesiredFloor)
 	}

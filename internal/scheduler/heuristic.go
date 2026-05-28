@@ -12,10 +12,13 @@ type Heuristic struct{}
 
 func NewHeuristic() *Heuristic { return &Heuristic{} }
 
+// Decide returns max(scheduleBase) clamped to floor.min/floor.max, with cooldown
+// applied to decreases. The d Demand argument is retained for signature
+// compatibility with the predictor and other callers; it does not contribute
+// to the floor (queue-depth would double-count ARC's own reactive scaling).
 func (h *Heuristic) Decide(spec v1alpha1.WarmRunnerPolicySpec, now time.Time, d Demand, currentApplied int32, lastDecreaseAt time.Time) Decision {
-	base := scheduleBase(spec.Schedule, now)
-	headroom := bestHeadroom(spec.QueueRule.Headroom, d.Queued)
-	desired := base + headroom
+	_ = d
+	desired := scheduleBase(spec.Schedule, now)
 	if desired < spec.Floor.Min {
 		desired = spec.Floor.Min
 	}
@@ -51,18 +54,6 @@ func scheduleBase(windows []v1alpha1.ScheduleWindow, now time.Time) int32 {
 			if w.Base > best {
 				best = w.Base
 			}
-		}
-	}
-	return best
-}
-
-func bestHeadroom(tiers []v1alpha1.HeadroomTier, queued int32) int32 {
-	var best int32 = 0
-	var bestThreshold int32 = -1
-	for _, t := range tiers {
-		if queued >= t.WhenQueueAtLeast && t.WhenQueueAtLeast > bestThreshold {
-			best = t.AddRunners
-			bestThreshold = t.WhenQueueAtLeast
 		}
 	}
 	return best

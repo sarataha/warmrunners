@@ -151,22 +151,6 @@ spec:
                   cooldown:
                     default: 2m
                     type: string
-                  headroom:
-                    items:
-                      properties:
-                        addRunners:
-                          format: int32
-                          minimum: 0
-                          type: integer
-                        whenQueueAtLeast:
-                          format: int32
-                          minimum: 1
-                          type: integer
-                      required:
-                      - addRunners
-                      - whenQueueAtLeast
-                      type: object
-                    type: array
                   pollInterval:
                     default: 30s
                     type: string
