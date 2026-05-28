@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	warmrunnersv1alpha1 "github.com/sarataha/warmrunners/api/v1alpha1"
+	"github.com/sarataha/warmrunners/internal/activity"
 	"github.com/sarataha/warmrunners/internal/controller"
 	"github.com/sarataha/warmrunners/internal/predictor"
 	"github.com/sarataha/warmrunners/internal/scheduler"
@@ -187,11 +188,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Predictor (v0.2.0). One *WorkflowNeedsGraph per process is shared
-	// across all WarmRunnerPolicy reconciles — the per-policy GitHub token
-	// is plumbed at reconcile time (resolved from each policy's auth
-	// secretRef and passed positionally to Predict / Fetch), not at
-	// construction. v0.2.0 shipped with no auth wiring here and observed
+	// Predictor (v0.2.0) + Activity sampler (v0.3.0). Both share the same
+	// *http.Client and *WorkflowFetcher — the fetcher's YAML cache is
+	// process-shared, so the activity sampler pays no extra fetch cost for
+	// workflows the predictor already touched (and vice versa). One
+	// *WorkflowNeedsGraph and one *WorkflowRunsSampler per process are
+	// shared across all WarmRunnerPolicy reconciles; the per-policy GitHub
+	// token is plumbed at reconcile time (resolved from each policy's auth
+	// secretRef and passed positionally to Predict / Sample / Fetch), not
+	// at construction. v0.2.0 shipped with no auth wiring here and observed
 	// 404s on every /actions/runs call against private/rate-limited repos;
 	// v0.2.1 closed that path.
 	//
@@ -218,6 +223,28 @@ func main() {
 			},
 		})
 
+	// Activity sampler (v0.3.0). Reuses predictorHTTPClient + predictorFetcher
+	// so YAML fetches are deduplicated between the two signals. runsCap=0
+	// → DefaultRunsCap (50), mirroring the predictor. No CLI flag: activity
+	// is fully CRD-driven via spec.activity.*.
+	activityImpl := activity.NewWorkflowRunsSampler(predictorHTTPClient, predictorFetcher, 0).
+		WithHooks(activity.Hooks{
+			OnBotFiltered: func(reason string) {
+				controller.IncActivityBotFiltered(reason)
+			},
+			OnYAMLFetch: func(result string) {
+				// Shared counter with the predictor — the fetcher is
+				// the same instance, so any consumer's fetch contributes
+				// to the same fleet-wide outcome distribution.
+				controller.RecordWorkflowYAMLFetch(result)
+			},
+			OnDynamicSkipped: func(_ string) {
+				controller.RecordWorkflowYAMLFetch("dynamic_skipped")
+			},
+			// OnEventFiltered intentionally left nil: no metric in
+			// v0.3.0 (event cardinality is small but not operator-actionable).
+		})
+
 	if err := (&controller.WarmRunnerPolicyReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
@@ -226,6 +253,7 @@ func main() {
 		MaxConcurrentReconciles: maxConcurrentReconciles,
 		GitHubHTTPTimeout:       githubHTTPTimeout,
 		Predictor:               predictorImpl,
+		Activity:                activityImpl,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WarmRunnerPolicy")
 		os.Exit(1)

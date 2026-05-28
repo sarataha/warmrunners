@@ -61,12 +61,36 @@ var (
 		prometheus.CounterOpts{Name: "warmrunners_workflow_yaml_fetch_total", Help: "Predictor workflow YAML fetch outcomes."},
 		[]string{"result"},
 	)
+	// activityFloorGauge is the Activity sampler's contribution to the policy's
+	// desired floor on the most recent reconcile (v0.3.0). Sibling of
+	// predictedFloorGauge — the reconciler folds both via max() before clamping.
+	activityFloorGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{Name: "warmrunners_activity_floor", Help: "Activity sampler's contribution to the desired floor."},
+		[]string{"policy"},
+	)
+	// activityJobsGauge is the per-label-set job-count sample from the Activity
+	// sampler. Sibling of predictedJobsGauge; same pruning discipline (label
+	// sets seen on a previous reconcile but absent now are DeleteLabelValues'd
+	// to bound cardinality).
+	activityJobsGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{Name: "warmrunners_activity_jobs_total", Help: "Per-label-set job count from the Activity sampler."},
+		[]string{"policy", "labels"},
+	)
+	// activityBotFilteredTotal counts bot-filtered workflow_runs by the reason
+	// IsBotActor returned. The {policy} label is intentionally dropped — same
+	// reasoning as workflowYAMLFetchTotal: the sampler is shared across
+	// policies via cmd/main.go's single httpClient + WorkflowFetcher.
+	activityBotFilteredTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: "warmrunners_activity_bot_filtered_total", Help: "Bot-filtered workflow_runs by reason."},
+		[]string{"reason"},
+	)
 )
 
 func init() {
 	metricsserver.Registry.MustRegister(
 		desiredFloor, appliedFloor, queueDepth, floorChanges, buildInfo, reconcileErrors,
 		predictedFloorGauge, predictedJobsGauge, workflowYAMLFetchTotal,
+		activityFloorGauge, activityJobsGauge, activityBotFilteredTotal,
 	)
 	buildInfo.WithLabelValues(version.Version, version.Commit, version.BuildDate).Set(1)
 }
@@ -76,4 +100,12 @@ func init() {
 // reaching into package-private state. result ∈ {fetched, error, dynamic_skipped}.
 func RecordWorkflowYAMLFetch(result string) {
 	workflowYAMLFetchTotal.WithLabelValues(result).Inc()
+}
+
+// IncActivityBotFiltered bumps the warmrunners_activity_bot_filtered_total
+// counter. Exported so cmd/main.go can wire the Activity sampler's Hooks
+// without reaching into package-private state. reason is the value returned
+// by activity.IsBotActor: {bot_type, trigger_bot_type, bot_suffix, denylist}.
+func IncActivityBotFiltered(reason string) {
+	activityBotFilteredTotal.WithLabelValues(reason).Inc()
 }

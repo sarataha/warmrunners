@@ -123,6 +123,40 @@ type PredictedLabelSet struct {
 	Count  int32    `json:"count"`
 }
 
+// ActivityConfig configures the activity-driven warm-floor signal (v0.3.0).
+type ActivityConfig struct {
+	// +kubebuilder:default=true
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// WindowSeconds is the rolling window over which recent non-bot
+	// workflow_runs are counted. Defaults to 900 (15 minutes); see spec §3.4.
+	//
+	// +kubebuilder:validation:Minimum=60
+	// +kubebuilder:validation:Maximum=7200
+	// +kubebuilder:default=900
+	// +optional
+	WindowSeconds int32 `json:"windowSeconds,omitempty"`
+
+	// BotLoginDenylist is appended to the built-in denylist (dependabot[bot],
+	// renovate[bot], github-actions[bot], mergify[bot], codecov[bot],
+	// copilot-pull-request-reviewer[bot], self-hosted-renovate[bot]). Use
+	// for PAT-driven machine users that lack the [bot] suffix (e.g.
+	// "snyk-bot", "getsentry-bot", in-house "*-ci" / "*-deploy" accounts).
+	// Entries match workflow_run.actor.login exactly (case-sensitive).
+	//
+	// +kubebuilder:validation:MaxItems=64
+	// +listType=set
+	// +optional
+	BotLoginDenylist []string `json:"botLoginDenylist,omitempty"`
+}
+
+// Reason strings for the ActivityAvailable status condition (v0.3.0).
+const (
+	ActivityConditionReasonAvailable   = "Available"
+	ActivityConditionReasonSampleError = "SampleError"
+)
+
 type WarmRunnerPolicySpec struct {
 	GitHub GitHubConfig `json:"github"`
 	Target Target       `json:"target"`
@@ -132,6 +166,8 @@ type WarmRunnerPolicySpec struct {
 	QueueRule QueueRule        `json:"queueRule"`
 	// +optional
 	Predictor *PredictorConfig `json:"predictor,omitempty"`
+	// +optional
+	Activity *ActivityConfig `json:"activity,omitempty"`
 }
 
 type WarmRunnerPolicyStatus struct {
@@ -149,6 +185,13 @@ type WarmRunnerPolicyStatus struct {
 	// +listType=atomic
 	// +optional
 	PredictedLabelSets []PredictedLabelSet `json:"predictedLabelSets,omitempty"`
+
+	// +optional
+	ActivityFloor int32 `json:"activityFloor,omitempty"`
+
+	// +listType=atomic
+	// +optional
+	ActivityLabelSets []PredictedLabelSet `json:"activityLabelSets,omitempty"`
 	// +patchMergeKey=type
 	// +patchStrategy=merge
 	// +listType=map
@@ -164,6 +207,7 @@ type WarmRunnerPolicyStatus struct {
 // +kubebuilder:printcolumn:name="Applied",type=integer,JSONPath=`.status.appliedFloor`
 // +kubebuilder:printcolumn:name="Queue",type=integer,JSONPath=`.status.lastQueueDepth`
 // +kubebuilder:printcolumn:name="Predicted",type=integer,JSONPath=`.status.predictedFloor`
+// +kubebuilder:printcolumn:name="Active",type=integer,JSONPath=`.status.activityFloor`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`
 type WarmRunnerPolicy struct {
 	metav1.TypeMeta   `json:",inline"`

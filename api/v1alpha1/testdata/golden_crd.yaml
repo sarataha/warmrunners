@@ -31,6 +31,9 @@ spec:
     - jsonPath: .status.predictedFloor
       name: Predicted
       type: integer
+    - jsonPath: .status.activityFloor
+      name: Active
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -57,6 +60,36 @@ spec:
             type: object
           spec:
             properties:
+              activity:
+                description: ActivityConfig configures the activity-driven warm-floor
+                  signal (v0.3.0).
+                properties:
+                  botLoginDenylist:
+                    description: |-
+                      BotLoginDenylist is appended to the built-in denylist (dependabot[bot],
+                      renovate[bot], github-actions[bot], mergify[bot], codecov[bot],
+                      copilot-pull-request-reviewer[bot], self-hosted-renovate[bot]). Use
+                      for PAT-driven machine users that lack the [bot] suffix (e.g.
+                      "snyk-bot", "getsentry-bot", in-house "*-ci" / "*-deploy" accounts).
+                      Entries match workflow_run.actor.login exactly (case-sensitive).
+                    items:
+                      type: string
+                    maxItems: 64
+                    type: array
+                    x-kubernetes-list-type: set
+                  enabled:
+                    default: true
+                    type: boolean
+                  windowSeconds:
+                    default: 900
+                    description: |-
+                      WindowSeconds is the rolling window over which recent non-bot
+                      workflow_runs are counted. Defaults to 900 (15 minutes); see spec §3.4.
+                    format: int32
+                    maximum: 7200
+                    minimum: 60
+                    type: integer
+                type: object
               floor:
                 properties:
                   max:
@@ -247,6 +280,26 @@ spec:
             type: object
           status:
             properties:
+              activityFloor:
+                format: int32
+                type: integer
+              activityLabelSets:
+                items:
+                  description: PredictedLabelSet is one entry in Status.PredictedLabelSets.
+                  properties:
+                    count:
+                      format: int32
+                      type: integer
+                    labels:
+                      items:
+                        type: string
+                      type: array
+                  required:
+                  - count
+                  - labels
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               appliedFloor:
                 format: int32
                 type: integer
