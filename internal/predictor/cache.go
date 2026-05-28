@@ -44,7 +44,7 @@ const (
 // caching. It is intentionally narrow: it does not parse the YAML, manage auth
 // tokens, or hold GitHub-client state — those concerns belong to the caller.
 type WorkflowFetcher interface {
-	Fetch(ctx context.Context, owner, repo, path, ref string) ([]byte, error)
+	Fetch(ctx context.Context, owner, repo, path, ref, token string) ([]byte, error)
 }
 
 // Option configures a workflowFetcher. The exported helpers below mirror the
@@ -118,9 +118,10 @@ type workflowFetcher struct {
 }
 
 // NewWorkflowFetcher constructs a WorkflowFetcher with the supplied HTTP
-// client and User-Agent version string. The fetcher does not set
-// Authorization headers; the caller is expected to provide an http.Client
-// whose transport injects auth (matching the v0.1.1 poller's seam).
+// client and User-Agent version string. The token passed to Fetch is set as
+// `Authorization: Bearer <token>` per request when non-empty; the http.Client
+// transport may still add complementary headers (e.g. tracing) but is not
+// required to inject auth.
 func NewWorkflowFetcher(httpClient *http.Client, userAgentVersion string, opts ...Option) WorkflowFetcher {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -153,7 +154,16 @@ func NewWorkflowFetcher(httpClient *http.Client, userAgentVersion string, opts .
 // a single workflow without failing the whole prediction. 5xx / transient
 // network errors back off exponentially up to maxFetchRetries; 429/403 with
 // Retry-After honor the server's wait. All sleeps respect ctx.Done().
-func (f *workflowFetcher) Fetch(ctx context.Context, owner, repo, path, ref string) ([]byte, error) {
+func (f *workflowFetcher) Fetch(ctx context.Context, owner, repo, path, ref, token string) ([]byte, error) {
+	// Trim whitespace on the token at the use site. Tokens loaded from Secrets
+	// created via `kubectl --from-file` or `echo` carry a trailing newline,
+	// which makes an invalid Authorization header value. Mirrors the v0.1.x
+	// poller's `strings.TrimSpace` defense.
+	token = strings.TrimSpace(token)
+	// Cache key is intentionally (owner, repo, path, ref): workflow YAML at a
+	// specific SHA is content-addressed and identical for every caller, so the
+	// LRU is shareable across tokens. Including the token would shred hit
+	// rate without changing the bytes returned.
 	key := cacheKey(owner, repo, path, ref)
 	u := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s",
 		strings.TrimRight(f.baseURL, "/"),
@@ -168,6 +178,9 @@ func (f *workflowFetcher) Fetch(ctx context.Context, owner, repo, path, ref stri
 		}
 		req.Header.Set("Accept", "application/vnd.github.raw")
 		req.Header.Set("User-Agent", f.userAgent)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
 		if etag := f.cachedETag(key); etag != "" {
 			req.Header.Set("If-None-Match", etag)
 		}

@@ -140,10 +140,10 @@ type jobsListResponse struct {
 // already gathered the run set) drop only that run; the call still returns
 // a non-nil Prediction. Reusable-workflow load failures collapse only that
 // sub-tree; siblings still contribute.
-func (g *WorkflowNeedsGraph) Predict(ctx context.Context, owner, repo string) (Prediction, error) {
+func (g *WorkflowNeedsGraph) Predict(ctx context.Context, owner, repo, token string) (Prediction, error) {
 	out := Prediction{PerLabelSet: make(map[string]int)}
 
-	runs, err := g.listActiveRuns(ctx, owner, repo)
+	runs, err := g.listActiveRuns(ctx, owner, repo, token)
 	if err != nil {
 		return out, err
 	}
@@ -152,7 +152,7 @@ func (g *WorkflowNeedsGraph) Predict(ctx context.Context, owner, repo string) (P
 	}
 
 	for _, run := range runs {
-		g.contributeRun(ctx, owner, repo, run, out.PerLabelSet)
+		g.contributeRun(ctx, owner, repo, run, token, out.PerLabelSet)
 	}
 	return out, nil
 }
@@ -163,14 +163,14 @@ func (g *WorkflowNeedsGraph) Predict(ctx context.Context, owner, repo string) (P
 //
 // A listing-level HTTP error is fatal: we cannot reason about which runs are
 // active and silently dropping all of them would understate predicted demand.
-func (g *WorkflowNeedsGraph) listActiveRuns(ctx context.Context, owner, repo string) ([]runRef, error) {
+func (g *WorkflowNeedsGraph) listActiveRuns(ctx context.Context, owner, repo, token string) ([]runRef, error) {
 	seen := make(map[int64]struct{})
 	out := make([]runRef, 0, g.runsCap)
 	for _, status := range activeStatuses {
 		u := fmt.Sprintf("%s/repos/%s/%s/actions/runs?status=%s",
 			strings.TrimRight(g.baseURL, "/"),
 			url.PathEscape(owner), url.PathEscape(repo), url.QueryEscape(status))
-		body, err := g.cachedGet(ctx, u)
+		body, err := g.cachedGet(ctx, u, token)
 		if err != nil {
 			return nil, fmt.Errorf("list runs (status=%s): %w", status, err)
 		}
@@ -196,14 +196,14 @@ func (g *WorkflowNeedsGraph) listActiveRuns(ctx context.Context, owner, repo str
 // dst. Per-run failures (jobs listing, YAML fetch, parse) are absorbed:
 // this run contributes nothing, the rest of the poll continues. This is the
 // "drop one run" leg of the error model in spec §5.
-func (g *WorkflowNeedsGraph) contributeRun(ctx context.Context, owner, repo string, run runRef, dst map[string]int) {
-	materialized, err := g.listJobs(ctx, owner, repo, run.ID)
+func (g *WorkflowNeedsGraph) contributeRun(ctx context.Context, owner, repo string, run runRef, token string, dst map[string]int) {
+	materialized, err := g.listJobs(ctx, owner, repo, run.ID, token)
 	if err != nil {
 		// Per-run drop: do not surface to caller, do not poison sibling runs.
 		return
 	}
 
-	body, err := g.fetcher.Fetch(ctx, owner, repo, run.Path, run.HeadSHA)
+	body, err := g.fetcher.Fetch(ctx, owner, repo, run.Path, run.HeadSHA, token)
 	if err != nil {
 		g.emitYAMLFetch("error")
 		// 404 / network error: drop this run. The caller already returns a
@@ -219,7 +219,7 @@ func (g *WorkflowNeedsGraph) contributeRun(ctx context.Context, owner, repo stri
 	}
 
 	visited := make(map[string]struct{})
-	g.walkWorkflow(ctx, owner, repo, run.HeadSHA, wf, materialized, visited, 0, dst)
+	g.walkWorkflow(ctx, owner, repo, run.HeadSHA, token, wf, materialized, visited, 0, dst)
 }
 
 // walkWorkflow walks one parsed workflow's jobs and folds contributions
@@ -235,7 +235,7 @@ func (g *WorkflowNeedsGraph) contributeRun(ctx context.Context, owner, repo stri
 // revision can return per-combo label sets to lift this.
 func (g *WorkflowNeedsGraph) walkWorkflow(
 	ctx context.Context,
-	owner, repo, headSHA string,
+	owner, repo, headSHA, token string,
 	wf workflow.Workflow,
 	materialized map[string]struct{},
 	visited map[string]struct{},
@@ -262,7 +262,7 @@ func (g *WorkflowNeedsGraph) walkWorkflow(
 			continue
 		}
 		if job.UsesLocal != "" {
-			g.recurseLocal(ctx, owner, repo, headSHA, job.UsesLocal, materialized, visited, depth, dst)
+			g.recurseLocal(ctx, owner, repo, headSHA, token, job.UsesLocal, materialized, visited, depth, dst)
 			continue
 		}
 
@@ -304,7 +304,7 @@ func (g *WorkflowNeedsGraph) walkWorkflow(
 // with cycle detection on (owner/repo/path@sha).
 func (g *WorkflowNeedsGraph) recurseLocal(
 	ctx context.Context,
-	owner, repo, headSHA, usesPath string,
+	owner, repo, headSHA, token, usesPath string,
 	materialized map[string]struct{},
 	visited map[string]struct{},
 	depth int,
@@ -325,7 +325,7 @@ func (g *WorkflowNeedsGraph) recurseLocal(
 	visited[visitKey] = struct{}{}
 	defer delete(visited, visitKey)
 
-	body, err := g.fetcher.Fetch(ctx, owner, repo, path, headSHA)
+	body, err := g.fetcher.Fetch(ctx, owner, repo, path, headSHA, token)
 	if err != nil {
 		g.emitYAMLFetch("error")
 		// Reusable-workflow load failure: this sub-tree contributes nothing;
@@ -344,7 +344,7 @@ func (g *WorkflowNeedsGraph) recurseLocal(
 	// share a name with a top-level materialized job is still skipped; in
 	// practice the materialized set is per-run and the reusable's jobs
 	// haven't appeared, so all interior jobs walk normally.
-	g.walkWorkflow(ctx, owner, repo, headSHA, wf, materialized, visited, depth+1, dst)
+	g.walkWorkflow(ctx, owner, repo, headSHA, token, wf, materialized, visited, depth+1, dst)
 }
 
 // listJobs returns the set of currently-materialized job NAMES for one run.
@@ -354,11 +354,11 @@ func (g *WorkflowNeedsGraph) recurseLocal(
 // to the job's YAML key, so name-vs-id matching works in the common case.
 // (Workflows that set a custom `name:` will under-count materialization,
 // which over-warms rather than under-warms — bounded by floor.max.)
-func (g *WorkflowNeedsGraph) listJobs(ctx context.Context, owner, repo string, runID int64) (map[string]struct{}, error) {
+func (g *WorkflowNeedsGraph) listJobs(ctx context.Context, owner, repo string, runID int64, token string) (map[string]struct{}, error) {
 	u := fmt.Sprintf("%s/repos/%s/%s/actions/runs/%d/jobs?filter=latest",
 		strings.TrimRight(g.baseURL, "/"),
 		url.PathEscape(owner), url.PathEscape(repo), runID)
-	body, err := g.cachedGet(ctx, u)
+	body, err := g.cachedGet(ctx, u, token)
 	if err != nil {
 		return nil, err
 	}
@@ -377,12 +377,18 @@ func (g *WorkflowNeedsGraph) listJobs(ctx context.Context, owner, repo string, r
 // cache key; If-None-Match is set when we have a prior ETag, and a 304
 // returns the cached payload without consuming primary-rate-limit quota
 // (see spec §4).
-func (g *WorkflowNeedsGraph) cachedGet(ctx context.Context, u string) ([]byte, error) {
+func (g *WorkflowNeedsGraph) cachedGet(ctx context.Context, u, token string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
+	// Trim whitespace on the token at the use site (kubectl --from-file /
+	// echo-style Secret payloads carry a trailing newline). Mirrors the
+	// v0.1.x poller's defense and the fetcher's behavior.
+	if tok := strings.TrimSpace(token); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 	if etag := g.cachedETag(u); etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}
