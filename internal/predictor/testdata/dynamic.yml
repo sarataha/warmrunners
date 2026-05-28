@@ -1,0 +1,19 @@
+name: dynamic
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: which runner
+        type: string
+jobs:
+  dyn_runson:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - run: echo hi
+  dyn_matrix:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: ${{ fromJSON(inputs.runner) }}
+    steps:
+      - run: echo hi
