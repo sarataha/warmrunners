@@ -31,3 +31,8 @@ spec:
   #   enabled: true
   #   workflowRefreshInterval: 5m
   #   maxRunsPerPoll: 50
+  # spec.activity — activity-driven warm-floor signal (v0.3.0). Optional; omit to disable.
+  # activity:
+  #   enabled: true
+  #   windowSeconds: 900
+  #   botLoginDenylist: []   # appended to the built-in list, not replacing it

@@ -19,6 +19,7 @@ package controller
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -183,6 +184,67 @@ var _ = Describe("WarmRunnerPolicy CRD validation", func() {
 		Expect(pred["enabled"]).To(BeTrue())
 		Expect(pred["workflowRefreshInterval"]).To(Equal("5m"))
 		Expect(pred["maxRunsPerPoll"]).To(BeNumerically("==", 50))
+	})
+
+	It("rejects spec.activity.windowSeconds: 59", func() {
+		p := validBase("invalid-activity-window-low")
+		p.Spec.Activity = &warmrunnersv1alpha1.ActivityConfig{WindowSeconds: 59}
+		err := k8sClient.Create(ctx, p)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("rejects spec.activity.windowSeconds: 7201", func() {
+		p := validBase("invalid-activity-window-high")
+		p.Spec.Activity = &warmrunnersv1alpha1.ActivityConfig{WindowSeconds: 7201}
+		err := k8sClient.Create(ctx, p)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("accepts a policy with no spec.activity block (v0.2.x behavior)", func() {
+		p := validBase("no-activity")
+		Expect(p.Spec.Activity).To(BeNil())
+		Expect(k8sClient.Create(ctx, p)).To(Succeed())
+		got := &warmrunnersv1alpha1.WarmRunnerPolicy{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: p.Name, Namespace: p.Namespace}, got)).To(Succeed())
+		Expect(got.Spec.Activity).To(BeNil())
+	})
+
+	It("defaults spec.activity fields when the block is present but empty", func() {
+		u := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "autoscaling.warmrunners.io/v1alpha1",
+			"kind":       "WarmRunnerPolicy",
+			"metadata":   map[string]interface{}{"name": "empty-activity", "namespace": "default"},
+			"spec": map[string]interface{}{
+				"github": map[string]interface{}{
+					"owner": "o", "repository": "r", "labels": []interface{}{"self-hosted"},
+					"auth": map[string]interface{}{"secretRef": map[string]interface{}{"name": "gh-token", "key": "token"}},
+				},
+				"target":    map[string]interface{}{"arc": map[string]interface{}{"runnerSet": map[string]interface{}{"name": "n", "namespace": "ns"}}},
+				"floor":     map[string]interface{}{"min": int64(0), "max": int64(5)},
+				"queueRule": map[string]interface{}{"pollInterval": "30s", "cooldown": "2m"},
+				"activity":  map[string]interface{}{},
+			},
+		}}
+		Expect(k8sClient.Create(ctx, u)).To(Succeed())
+		got := &unstructured.Unstructured{}
+		got.SetGroupVersionKind(warmrunnersv1alpha1.GroupVersion.WithKind("WarmRunnerPolicy"))
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "empty-activity", Namespace: "default"}, got)).To(Succeed())
+		act, found, err := unstructured.NestedMap(got.Object, "spec", "activity")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found).To(BeTrue())
+		Expect(act["enabled"]).To(BeTrue())
+		Expect(act["windowSeconds"]).To(BeNumerically("==", 900))
+	})
+
+	It("rejects spec.activity.botLoginDenylist with 65 entries", func() {
+		p := validBase("invalid-activity-denylist-too-many")
+		denylist := make([]string, 65)
+		for i := range denylist {
+			denylist[i] = "bot-" + strconv.Itoa(i)
+		}
+		p.Spec.Activity = &warmrunnersv1alpha1.ActivityConfig{BotLoginDenylist: denylist}
+		err := k8sClient.Create(ctx, p)
+		Expect(err).To(HaveOccurred())
 	})
 
 	It("accepts the example arc policy", func() {
