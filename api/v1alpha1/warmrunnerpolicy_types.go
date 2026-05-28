@@ -93,17 +93,9 @@ type ScheduleWindow struct {
 	Base int32 `json:"base"`
 }
 
-type HeadroomTier struct {
-	// +kubebuilder:validation:Minimum=1
-	WhenQueueAtLeast int32 `json:"whenQueueAtLeast"`
-	// +kubebuilder:validation:Minimum=0
-	AddRunners int32 `json:"addRunners"`
-}
-
 type QueueRule struct {
 	// +kubebuilder:default="30s"
 	PollInterval metav1.Duration `json:"pollInterval"`
-	Headroom     []HeadroomTier  `json:"headroom,omitempty"`
 	// +kubebuilder:default="2m"
 	Cooldown metav1.Duration `json:"cooldown"`
 }
