@@ -13,32 +13,16 @@ cold-start and idle runners don't burn money overnight.
 
 ## How it works
 
-One CRD, `WarmRunnerPolicy`. Each policy targets one backend pool. Three
-signals contribute; the strongest wins:
+One CRD, `WarmRunnerPolicy`, per backend pool. The floor is the max of three
+signals; the strongest wins.
 
-```
-desiredFloor = clamp(max(scheduleBase, predictorContribution, activityContribution),
-                     floor.min, floor.max)
-```
+* **Schedule**: time windows like `Mon–Fri 09:00–18:00 base 3`.
+* **Predictor**: reads each active `workflow_run`'s YAML at `head_sha` and pre-warms downstream pools while upstream jobs are still running. The only GHA autoscaler that does this; reactive ones see `needs:`-blocked jobs only after upstream completes.
+* **Activity**: while the repo has non-bot CI activity in the last 15 min, the floor matches the matrix fanout of the triggered workflows. Quiet repo, floor drops to 0.
 
-**Schedule** (v0.1.0). Hand-written time windows like `Mon–Fri 09:00–18:00 base 3`.
+Decreases are rate-limited by a cooldown. The controller never deletes runners.
 
-**Predictor** (v0.2.0). Parses each active `workflow_run`'s YAML at `head_sha`
-and walks the `needs:` graph. While an upstream job is still running, the
-predictor pre-warms the downstream pool (e.g. GPU). GitHub does not materialize
-`needs:`-blocked jobs until upstream completes, so reactive autoscalers cannot
-anticipate them.
-
-**Activity** (v0.3.0). While the repo has recent non-bot CI activity in the
-last 15 minutes (configurable), the floor is sized to the matrix fanout of the
-workflows being triggered. Quiet repo, floor drops to 0. The bot filter covers
-Dependabot, Renovate, GitHub Actions, and PAT-driven machine users.
-
-Each signal is independently togglable. Floor decreases are rate-limited by a
-cooldown. The controller never deletes runners; it only moves the floor and
-lets the backend drain naturally.
-
-See [`examples/`](examples/) for complete ARC and GARM policies.
+See [`examples/`](examples/) for full policies.
 
 ## Install
 
