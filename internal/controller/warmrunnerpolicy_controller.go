@@ -19,11 +19,15 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/sarataha/warmrunners/api/v1alpha1"
 	"github.com/sarataha/warmrunners/internal/adapter"
 	"github.com/sarataha/warmrunners/internal/demand"
+	"github.com/sarataha/warmrunners/internal/predictor"
 	"github.com/sarataha/warmrunners/internal/scheduler"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +36,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // githubBaseURL is the GitHub REST API base used when constructing a
@@ -58,6 +63,19 @@ type WarmRunnerPolicyReconciler struct {
 	// GitHubHTTPTimeout bounds each GitHub REST call. Zero falls back to the
 	// poller's built-in default (10s).
 	GitHubHTTPTimeout time.Duration
+	// Predictor is the codebase-aware imminent-demand source (v0.2.0). When
+	// nil, the predictor leg is skipped entirely and the reconciler degrades
+	// to v0.1.x behavior (schedule + reactive only). The field is an
+	// interface so unit tests can inject a stub returning a canned snapshot.
+	Predictor predictor.Predictor
+
+	// prevPredictedLabels tracks the label-set keys we emitted as
+	// warmrunners_predicted_jobs_total samples for each policy on the
+	// previous reconcile. We DeleteLabelValues for keys that disappear so
+	// the gauge family does not accumulate cardinality from transient
+	// label-sets. Guarded by mu.
+	mu                  sync.Mutex
+	prevPredictedLabels map[string]map[string]struct{}
 }
 
 func (r *WarmRunnerPolicyReconciler) adapterFor(t v1alpha1.Target) (adapter.Adapter, adapter.Ref, bool) {
@@ -150,6 +168,37 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	dec := r.Scheduler.Decide(pol.Spec, time.Now(), scheduler.Demand{Queued: snap.Queued, Running: snap.Running}, current, lastDec)
 
+	// Predictor leg (v0.2.0). Folded in at the reconciler — Decide is
+	// unchanged per spec §3.4. The contribution is added to the candidate
+	// max BEFORE the backend-max clamp; the existing cooldown behavior is
+	// preserved because Decide already returns currentApplied when a
+	// decrease is blocked, so max(decide, predicted) cannot lower the
+	// floor inside cooldown.
+	//
+	// Spec.Predictor.WorkflowRefreshInterval is parsed but not yet wired —
+	// the metav1.Duration omitempty + apiserver default does not round-trip
+	// through the typed client (zero value emits "0s" and skips defaulting),
+	// so a zero value here must be treated as "use the 5m fallback". This
+	// matters for future cache-TTL plumbing into the WorkflowFetcher; today
+	// the cache TTL is the fetcher's concern, not the reconciler's, so we
+	// only note the contract here.
+	predictedContrib, predictedLabelSets, perLabelSet, predErr := r.computePredicted(ctx, &pol)
+	if predErr != nil {
+		log.FromContext(ctx).Error(predErr, "predictor error", "policy", pol.Name)
+		setCondition(&pol, "PredictorAvailable", false, "PredictError", predErr.Error(), pol.Generation)
+		predictedContrib = 0
+	} else if r.Predictor != nil && (pol.Spec.Predictor == nil || pol.Spec.Predictor.Enabled) {
+		setCondition(&pol, "PredictorAvailable", true, "Available", "", pol.Generation)
+	}
+
+	if predictedContrib > dec.DesiredFloor {
+		dec.DesiredFloor = predictedContrib
+	}
+	// Re-clamp to floor.max (predicted may have raised desired above the cap).
+	if dec.DesiredFloor > pol.Spec.Floor.Max {
+		dec.DesiredFloor = pol.Spec.Floor.Max
+	}
+
 	// Clamp to the backend's own max-runner cap. floor.max may exceed it, in
 	// which case the backend would reject the patch live.
 	if backendMax, set, maxErr := ad.GetMax(ctx, ref); maxErr == nil && set && dec.DesiredFloor > backendMax {
@@ -181,12 +230,20 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	pol.Status.AppliedFloor = applied
 	pol.Status.LastQueueDepth = snap.Queued
 	pol.Status.LastReconcileTime = &now
+	pol.Status.PredictedFloor = predictedContrib
+	if len(predictedLabelSets) > 0 {
+		pol.Status.PredictedLabelSets = predictedLabelSets
+	} else {
+		pol.Status.PredictedLabelSets = nil
+	}
 	statusErr := r.Status().Update(ctx, &pol)
 
 	labels := []string{pol.Name, pol.Spec.Target.Kind()}
 	desiredFloor.WithLabelValues(labels...).Set(float64(dec.DesiredFloor))
 	appliedFloor.WithLabelValues(labels...).Set(float64(applied))
 	queueDepth.WithLabelValues(pol.Name).Set(float64(snap.Queued))
+	predictedFloorGauge.WithLabelValues(pol.Name).Set(float64(predictedContrib))
+	r.emitPredictedJobsMetrics(pol.Name, perLabelSet)
 	if demErr == nil && setErr == nil {
 		if dec.DesiredFloor > current {
 			floorChanges.WithLabelValues(pol.Name, "up").Inc()
@@ -225,6 +282,111 @@ func errMsg(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// predictorTopN caps Status.PredictedLabelSets to keep the CR object size
+// bounded. Spec §3.5 example showed two entries; plan §11 settled on N=8.
+const predictorTopN = 8
+
+// computePredicted runs the predictor (if enabled) and returns the
+// contribution to this policy's floor (sum of counts for label sets that
+// match the policy's github.labels filter), the top-N label-set entries
+// for status visibility, the full per-label-set map (for the gauge metric),
+// and any predictor error. A nil Predictor or a disabled config yields zero
+// contribution and no error.
+func (r *WarmRunnerPolicyReconciler) computePredicted(
+	ctx context.Context,
+	pol *v1alpha1.WarmRunnerPolicy,
+) (int32, []v1alpha1.PredictedLabelSet, map[string]int, error) {
+	if r.Predictor == nil {
+		return 0, nil, nil, nil
+	}
+	if pol.Spec.Predictor != nil && !pol.Spec.Predictor.Enabled {
+		return 0, nil, nil, nil
+	}
+
+	pred, err := r.Predictor.Predict(ctx, pol.Spec.GitHub.Owner, pol.Spec.GitHub.Repository)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+
+	var contrib int32
+	matched := make([]v1alpha1.PredictedLabelSet, 0, len(pred.PerLabelSet))
+	want := pol.Spec.GitHub.Labels
+	for key, count := range pred.PerLabelSet {
+		labels := splitLabelSetKey(key)
+		if !labelsSuperset(labels, want) {
+			continue
+		}
+		contrib += int32(count)                                                                    //nolint:gosec // job counts are bounded by maxRunsPerPoll
+		matched = append(matched, v1alpha1.PredictedLabelSet{Labels: labels, Count: int32(count)}) //nolint:gosec
+	}
+
+	// Deterministic ordering: count desc, then key asc.
+	sort.Slice(matched, func(i, j int) bool {
+		if matched[i].Count != matched[j].Count {
+			return matched[i].Count > matched[j].Count
+		}
+		return predictor.LabelSetKey(matched[i].Labels) < predictor.LabelSetKey(matched[j].Labels)
+	})
+	if len(matched) > predictorTopN {
+		matched = matched[:predictorTopN]
+	}
+	if len(matched) == 0 {
+		matched = nil
+	}
+	return contrib, matched, pred.PerLabelSet, nil
+}
+
+// splitLabelSetKey inverts predictor.LabelSetKey. The key is a sorted,
+// comma-joined unique label list; an empty key yields a nil slice.
+func splitLabelSetKey(key string) []string {
+	if key == "" {
+		return nil
+	}
+	return strings.Split(key, ",")
+}
+
+// labelsSuperset reports whether have ⊇ want. Empty want is trivially
+// satisfied by any have, matching the reactive labelsMatch direction in
+// internal/demand/github_poller.go.
+func labelsSuperset(have, want []string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	set := make(map[string]struct{}, len(have))
+	for _, l := range have {
+		set[l] = struct{}{}
+	}
+	for _, w := range want {
+		if _, ok := set[w]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// emitPredictedJobsMetrics sets one warmrunners_predicted_jobs_total sample
+// per label set in this reconcile's prediction and prunes samples from
+// label sets seen on the previous reconcile but absent now.
+func (r *WarmRunnerPolicyReconciler) emitPredictedJobsMetrics(policy string, perLabelSet map[string]int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.prevPredictedLabels == nil {
+		r.prevPredictedLabels = make(map[string]map[string]struct{})
+	}
+	prev := r.prevPredictedLabels[policy]
+	curr := make(map[string]struct{}, len(perLabelSet))
+	for key, count := range perLabelSet {
+		predictedJobsGauge.WithLabelValues(policy, key).Set(float64(count))
+		curr[key] = struct{}{}
+	}
+	for key := range prev {
+		if _, ok := curr[key]; !ok {
+			predictedJobsGauge.DeleteLabelValues(policy, key)
+		}
+	}
+	r.prevPredictedLabels[policy] = curr
 }
 
 func setCondition(p *v1alpha1.WarmRunnerPolicy, ctype string, ok bool, reason, msg string, generation int64) {
