@@ -24,6 +24,8 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	warmrunnersv1alpha1 "github.com/sarataha/warmrunners/api/v1alpha1"
 	"sigs.k8s.io/yaml"
@@ -111,6 +113,76 @@ var _ = Describe("WarmRunnerPolicy CRD validation", func() {
 		p.Spec.Schedule[0].TZ = "Mars/Phobos/Deimos/Extra"
 		err := k8sClient.Create(ctx, p)
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("rejects spec.predictor.maxRunsPerPoll: 0", func() {
+		// 0 is the zero value of int32 with omitempty, so the typed object would
+		// drop the field; use unstructured to force the explicit 0 through.
+		u := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "autoscaling.warmrunners.io/v1alpha1",
+			"kind":       "WarmRunnerPolicy",
+			"metadata":   map[string]interface{}{"name": "invalid-predictor-zero", "namespace": "default"},
+			"spec": map[string]interface{}{
+				"github": map[string]interface{}{
+					"owner": "o", "repository": "r", "labels": []interface{}{"self-hosted"},
+					"auth": map[string]interface{}{"secretRef": map[string]interface{}{"name": "gh-token", "key": "token"}},
+				},
+				"target":    map[string]interface{}{"arc": map[string]interface{}{"runnerSet": map[string]interface{}{"name": "n", "namespace": "ns"}}},
+				"floor":     map[string]interface{}{"min": int64(0), "max": int64(5)},
+				"queueRule": map[string]interface{}{"pollInterval": "30s", "cooldown": "2m"},
+				"predictor": map[string]interface{}{"maxRunsPerPoll": int64(0)},
+			},
+		}}
+		err := k8sClient.Create(ctx, u)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("rejects spec.predictor.maxRunsPerPoll: 600", func() {
+		p := validBase("invalid-predictor-too-large")
+		p.Spec.Predictor = &warmrunnersv1alpha1.PredictorConfig{MaxRunsPerPoll: 600}
+		err := k8sClient.Create(ctx, p)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("accepts a policy with no spec.predictor block (v0.1.x behavior)", func() {
+		p := validBase("no-predictor")
+		Expect(p.Spec.Predictor).To(BeNil())
+		Expect(k8sClient.Create(ctx, p)).To(Succeed())
+		// Re-fetch and confirm the field is still nil (no kube-side default for the pointer).
+		got := &warmrunnersv1alpha1.WarmRunnerPolicy{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: p.Name, Namespace: p.Namespace}, got)).To(Succeed())
+		Expect(got.Spec.Predictor).To(BeNil())
+	})
+
+	It("defaults spec.predictor fields when the block is present but empty", func() {
+		// Send via unstructured so the empty predictor object is truly {}
+		// (metav1.Duration marshals zero values as "0s", which would suppress
+		// the apiserver default on workflowRefreshInterval).
+		u := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "autoscaling.warmrunners.io/v1alpha1",
+			"kind":       "WarmRunnerPolicy",
+			"metadata":   map[string]interface{}{"name": "empty-predictor", "namespace": "default"},
+			"spec": map[string]interface{}{
+				"github": map[string]interface{}{
+					"owner": "o", "repository": "r", "labels": []interface{}{"self-hosted"},
+					"auth": map[string]interface{}{"secretRef": map[string]interface{}{"name": "gh-token", "key": "token"}},
+				},
+				"target":    map[string]interface{}{"arc": map[string]interface{}{"runnerSet": map[string]interface{}{"name": "n", "namespace": "ns"}}},
+				"floor":     map[string]interface{}{"min": int64(0), "max": int64(5)},
+				"queueRule": map[string]interface{}{"pollInterval": "30s", "cooldown": "2m"},
+				"predictor": map[string]interface{}{},
+			},
+		}}
+		Expect(k8sClient.Create(ctx, u)).To(Succeed())
+		got := &unstructured.Unstructured{}
+		got.SetGroupVersionKind(warmrunnersv1alpha1.GroupVersion.WithKind("WarmRunnerPolicy"))
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "empty-predictor", Namespace: "default"}, got)).To(Succeed())
+		pred, found, err := unstructured.NestedMap(got.Object, "spec", "predictor")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found).To(BeTrue())
+		Expect(pred["enabled"]).To(BeTrue())
+		Expect(pred["workflowRefreshInterval"]).To(Equal("5m"))
+		Expect(pred["maxRunsPerPoll"]).To(BeNumerically("==", 50))
 	})
 
 	It("accepts the example arc policy", func() {

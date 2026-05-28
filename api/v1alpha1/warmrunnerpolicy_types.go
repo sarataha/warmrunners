@@ -108,6 +108,29 @@ type QueueRule struct {
 	Cooldown metav1.Duration `json:"cooldown"`
 }
 
+// PredictorConfig configures the codebase-aware Predictor (v0.2.0).
+type PredictorConfig struct {
+	// +kubebuilder:default=true
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// +kubebuilder:default="5m"
+	// +optional
+	WorkflowRefreshInterval metav1.Duration `json:"workflowRefreshInterval,omitempty"`
+
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=500
+	// +kubebuilder:default=50
+	// +optional
+	MaxRunsPerPoll int32 `json:"maxRunsPerPoll,omitempty"`
+}
+
+// PredictedLabelSet is one entry in Status.PredictedLabelSets.
+type PredictedLabelSet struct {
+	Labels []string `json:"labels"`
+	Count  int32    `json:"count"`
+}
+
 type WarmRunnerPolicySpec struct {
 	GitHub GitHubConfig `json:"github"`
 	Target Target       `json:"target"`
@@ -115,6 +138,8 @@ type WarmRunnerPolicySpec struct {
 	// +kubebuilder:validation:MaxItems=64
 	Schedule  []ScheduleWindow `json:"schedule,omitempty"`
 	QueueRule QueueRule        `json:"queueRule"`
+	// +optional
+	Predictor *PredictorConfig `json:"predictor,omitempty"`
 }
 
 type WarmRunnerPolicyStatus struct {
@@ -126,6 +151,12 @@ type WarmRunnerPolicyStatus struct {
 	// scheduler's cooldown so decreases are rate-limited independently of the
 	// per-poll reconcile time.
 	LastDecreaseTime *metav1.Time `json:"lastDecreaseTime,omitempty"`
+	// +optional
+	PredictedFloor int32 `json:"predictedFloor,omitempty"`
+
+	// +listType=atomic
+	// +optional
+	PredictedLabelSets []PredictedLabelSet `json:"predictedLabelSets,omitempty"`
 	// +patchMergeKey=type
 	// +patchStrategy=merge
 	// +listType=map
@@ -140,6 +171,7 @@ type WarmRunnerPolicyStatus struct {
 // +kubebuilder:printcolumn:name="Desired",type=integer,JSONPath=`.status.desiredFloor`
 // +kubebuilder:printcolumn:name="Applied",type=integer,JSONPath=`.status.appliedFloor`
 // +kubebuilder:printcolumn:name="Queue",type=integer,JSONPath=`.status.lastQueueDepth`
+// +kubebuilder:printcolumn:name="Predicted",type=integer,JSONPath=`.status.predictedFloor`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`
 type WarmRunnerPolicy struct {
 	metav1.TypeMeta   `json:",inline"`
