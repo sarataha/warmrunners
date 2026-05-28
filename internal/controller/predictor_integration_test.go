@@ -16,6 +16,7 @@ import (
 	"github.com/sarataha/warmrunners/api/v1alpha1"
 	"github.com/sarataha/warmrunners/internal/predictor"
 	"github.com/sarataha/warmrunners/internal/scheduler"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,13 +28,21 @@ import (
 // in the reconciler tests below. It records each call so tests can verify
 // the reconciler skips the predictor when disabled.
 type stubPredictor struct {
-	snap  predictor.Prediction
-	err   error
-	calls int
+	snap       predictor.Prediction
+	err        error
+	calls      int
+	lastToken  string
+	lastOwner  string
+	lastRepo   string
+	tokensSeen []string
 }
 
-func (s *stubPredictor) Predict(_ context.Context, _, _ string) (predictor.Prediction, error) {
+func (s *stubPredictor) Predict(_ context.Context, owner, repo, token string) (predictor.Prediction, error) {
 	s.calls++
+	s.lastOwner = owner
+	s.lastRepo = repo
+	s.lastToken = token
+	s.tokensSeen = append(s.tokensSeen, token)
 	return s.snap, s.err
 }
 
@@ -238,6 +247,45 @@ func TestReconcile_PredictedLabelSets_TopNDeterministic(t *testing.T) {
 		if !equalStrSlices(ls.Labels, w.labels) {
 			t.Fatalf("[%d] labels = %v, want %v", i, ls.Labels, w.labels)
 		}
+	}
+}
+
+// Token plumbing: when the policy references an auth Secret, the
+// reconciler resolves it and forwards the token through to Predict. This
+// is the v0.2.1 fix for the v0.2.0 predictor-auth bug (404 on every
+// /actions/runs call against private/rate-limited repos).
+func TestReconcile_PredictorToken_PlumbedFromSecret(t *testing.T) {
+	sch := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(sch)
+	_ = corev1.AddToScheme(sch)
+	arc := newARC(0)
+	pol := newPolicy()
+	pol.Name = "pred-tok"
+	pol.Spec.GitHub.Auth.SecretRef = corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: "gh-token"},
+		Key:                  "token",
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "gh-token", Namespace: pol.Namespace},
+		Data:       map[string][]byte{"token": []byte("live-test-tok")},
+	}
+	cl := fake.NewClientBuilder().WithScheme(sch).WithObjects(arc, pol, secret).WithStatusSubresource(pol).Build()
+
+	stub := &stubPredictor{snap: predictor.Prediction{PerLabelSet: map[string]int{"self-hosted": 1}}}
+	r := &WarmRunnerPolicyReconciler{
+		Client: cl, Scheme: sch,
+		Scheduler: scheduler.NewHeuristic(),
+		Demand:    stubDemand{},
+		Predictor: stub,
+	}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: pol.Name, Namespace: pol.Namespace}}); err != nil {
+		t.Fatal(err)
+	}
+	if stub.calls != 1 {
+		t.Fatalf("predictor calls = %d, want 1", stub.calls)
+	}
+	if stub.lastToken != "live-test-tok" {
+		t.Fatalf("predictor token = %q, want %q", stub.lastToken, "live-test-tok")
 	}
 }
 
