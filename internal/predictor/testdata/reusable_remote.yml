@@ -1,0 +1,8 @@
+name: reusable_remote
+on:
+  push:
+jobs:
+  call:
+    uses: octo-org/example-repo/.github/workflows/reusable.yml@main
+    with:
+      foo: bar

@@ -1,0 +1,8 @@
+name: reusable_local
+on:
+  push:
+jobs:
+  call:
+    uses: ./.github/workflows/inner.yml
+    with:
+      foo: bar

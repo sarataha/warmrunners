@@ -1,0 +1,6 @@
+name: caller_local
+on:
+  push:
+jobs:
+  call:
+    uses: ./.github/workflows/inner.yml

@@ -1,0 +1,28 @@
+name: matrix
+on:
+  push:
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ["18", "20"]
+        include:
+          - os: ubuntu-latest
+            node: "21"
+        exclude:
+          - os: macos-latest
+            node: "18"
+    steps:
+      - run: echo hi
+  arrayrunner:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - run: echo hi
+  groupform:
+    runs-on:
+      group: my-group
+      labels: [a, b]
+    steps:
+      - run: echo hi

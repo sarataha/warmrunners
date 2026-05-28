@@ -1,0 +1,8 @@
+name: inner
+on:
+  workflow_call:
+jobs:
+  inner_job:
+    runs-on: [self-hosted, inner]
+    steps:
+      - run: echo inner

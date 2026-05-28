@@ -1,0 +1,13 @@
+name: two_stage
+on:
+  push:
+jobs:
+  stage1:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo stage1
+  stage2:
+    needs: stage1
+    runs-on: [self-hosted, gpu]
+    steps:
+      - run: echo stage2
