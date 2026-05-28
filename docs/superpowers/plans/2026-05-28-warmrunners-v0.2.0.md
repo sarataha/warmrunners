@@ -65,7 +65,7 @@
 - Create: `internal/predictor/predictor_test.go` (table-driven tests on the helpers only — no impl yet)
 
 **Acceptance criteria:**
-- Exported `Predictor` interface with `Predict(ctx, owner, repo string) (Prediction, error)`.
+- Exported `Predictor` interface with `Predict(ctx, owner, repo, token string) (Prediction, error)`.
 - Exported `Prediction` struct with `PerLabelSet map[string]int`. A small helper `LabelSetKey(labels []string) string` returns a deterministic, sorted-comma-joined hash key for a label set (so `[gpu, self-hosted]` and `[self-hosted, gpu]` produce the same key).
 - All names match the spec verbatim (`Predictor`, `Prediction`, `PerLabelSet`).
 - `go vet ./...` clean.
@@ -184,7 +184,7 @@ Edge cases the parser MUST handle without crashing:
 
 `WorkflowNeedsGraph` implements `Predictor`. Its constructor accepts: a GitHub REST client (the same `http.Client` shape the v0.1.1 poller uses, including the configurable `--github-http-timeout`), the cache from Task 4, and a `RunsCap int` (defaults to 50, comes from `spec.predictor.maxRunsPerPoll`).
 
-`Predict(ctx, owner, repo)` performs:
+`Predict(ctx, owner, repo, token)` performs:
 
 1. List active runs via `GET /repos/{o}/{r}/actions/runs?status=in_progress` + `status=queued`, plus `pending`, `requested`, `waiting`. ETag-cached. Take the first `RunsCap` after de-dup by ID.
 2. For each active run, list its currently-materialized jobs (`GET /actions/runs/{run_id}/jobs?filter=latest`), ETag-cached. Note: the API does not return jobs whose `needs:` are unresolved — that's the v0.2.0 premise.
@@ -308,7 +308,7 @@ New printer column under the existing columns:
 Reconciler changes:
 - New field on `WarmRunnerPolicyReconciler`: `Predictor predictor.Predictor` (interface, so tests can inject a stub).
 - In `Reconcile`, after the existing schedule + reactive demand computation:
-  - If `spec.Predictor == nil || spec.Predictor.Enabled`, call `r.Predictor.Predict(ctx, owner, repo)`.
+  - If `spec.Predictor == nil || spec.Predictor.Enabled`, call `r.Predictor.Predict(ctx, owner, repo, token)` where `token` is the per-policy GitHub credential read from the same Secret the demand source uses.
   - Compute `predictedContrib = Σ Prediction.PerLabelSet[L]` where `L ⊇ policy.github.labels` (the matching-direction rule from spec §3.4: predicted job labels superset-contain the policy filter, mirroring v0.1.0's `labelsMatch(have=job.Labels, want=policy.labels)`).
   - `desiredFloor = clamp(max(scheduledFloor, predictedContrib), floor.min, min(floor.max, backendMax))`.
   - On predictor error: log at `V(0)`, set the `PredictorAvailable=False` condition with `reason` and `message`, and continue with `predictedContrib = 0` (v0.1.x behavior preserved).

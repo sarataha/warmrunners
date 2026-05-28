@@ -106,8 +106,11 @@ type Prediction struct {
 type Predictor interface {
     // Predict returns the imminent per-label-set demand inferred from active workflow
     // runs and their parsed needs: DAGs. Pure read-only; idempotent within a poll
-    // window; caller decides cadence.
-    Predict(ctx context.Context, owner, repository string) (Prediction, error)
+    // window; caller decides cadence. token is the per-policy GitHub credential
+    // and, when non-empty, is sent as `Authorization: Bearer <TrimSpace(token)>`
+    // on every outbound REST call (unauthenticated calls to the Actions API
+    // return 404 even on public repos, so a token is required in practice).
+    Predict(ctx context.Context, owner, repository, token string) (Prediction, error)
 }
 ```
 
