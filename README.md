@@ -22,22 +22,21 @@ desiredFloor = clamp(max(scheduleBase, predictedContribution, activityContributi
                      floor.min, floor.max)
 ```
 
-The strongest of three signals wins:
-
-- **Schedule** (v0.1.0): hand-written time windows, e.g. `Mon–Fri 09:00–18:00 base 3`.
-- **Predictor** (v0.2.0): parses each active `workflow_run`'s YAML at `head_sha`,
-  walks the `needs:` graph, and pre-warms the downstream pool (e.g. GPU) while the
-  upstream job is still running. GitHub doesn't materialize `needs:`-blocked jobs
-  until upstream completes, so reactive autoscalers can't anticipate them — this
-  is the only GitHub Actions autoscaler that does.
-- **Activity** (v0.3.0): while the repo has recent non-bot CI activity in the last
-  15 minutes (configurable), the floor is sized to the actual matrix fanout of the
-  workflows being triggered. Quiet repo → floor drops to 0. Bot filter covers
-  Dependabot, Renovate, GitHub Actions, and PAT-driven machine users.
+The strongest of three signals wins. **Schedule** (v0.1.0) covers hand-written
+time windows like `Mon–Fri 09:00–18:00 base 3`. **Predictor** (v0.2.0) parses
+each active `workflow_run`'s YAML at `head_sha`, walks the `needs:` graph, and
+pre-warms the downstream pool (e.g. GPU) while the upstream job is still
+running — GitHub doesn't materialize `needs:`-blocked jobs until upstream
+completes, so reactive autoscalers can't anticipate them. **Activity** (v0.3.0)
+keeps the floor sized to the actual matrix fanout of workflows being triggered
+while the repo has recent non-bot CI activity in the last 15 minutes
+(configurable), and lets the floor drop to 0 when the repo is quiet. The bot
+filter covers Dependabot, Renovate, GitHub Actions, and PAT-driven machine
+users.
 
 Each signal is independently togglable. Floor decreases are rate-limited by a
-cooldown. The controller never deletes runners — it only moves the floor; the
-backend drains naturally.
+cooldown. The controller never deletes runners; it only moves the floor and lets
+the backend drain naturally.
 
 See [`examples/`](examples/) for complete ARC and GARM policies.
 
