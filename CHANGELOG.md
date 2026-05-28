@@ -6,6 +6,34 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+- Codebase-aware `Predictor`: reads the `needs:` graph of active GitHub
+  `workflow_run`s and pre-warms downstream runners while their upstream jobs are
+  still running. Statically parses workflow YAML at the run's `head_sha`,
+  follows local reusable workflows (depth 10, cycle-safe), expands literal
+  matrices, and records dynamic forms (`${{ }}` expressions, `fromJSON`
+  matrices, remote reusable workflows) as undecidable rather than guessing.
+- New CRD fields: `spec.predictor.{enabled,workflowRefreshInterval,maxRunsPerPoll}`
+  (defaults: `true`, `5m`, `50`). Existing v0.1.x policies validate unchanged.
+- New status fields: `status.predictedFloor`, `status.predictedLabelSets`
+  (top-8 by count), and `PredictorAvailable` condition.
+- New printer column: `Predicted`.
+- New metrics: `warmrunners_predicted_floor{policy}`,
+  `warmrunners_predicted_jobs_total{policy,labels}`,
+  `warmrunners_workflow_yaml_fetch_total{result}`.
+- ETag-conditional + LRU-cached workflow-YAML fetcher honors `Retry-After`
+  and `X-RateLimit-Reset` (reuses the v0.1.1 poller's patterns).
+
+### Changed
+- Floor formula folds the predictor's contribution via `max(...)`:
+  `desiredFloor = clamp(max(scheduledFloor, predictedContrib), floor.min, min(floor.max, backendMax))`.
+  When the Predictor is disabled or errors, behavior reduces to v0.1.x exactly.
+
+### Dependencies
+- Added `github.com/rhysd/actionlint` (MIT) for typed workflow-YAML parsing.
+
 ## [0.1.1] - 2026-05-27
 
 ### Added
