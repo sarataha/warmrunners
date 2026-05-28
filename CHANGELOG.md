@@ -6,7 +6,7 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
-## [0.2.0]
+## [0.2.0] - 2026-05-28
 
 ### Added
 - Codebase-aware `Predictor`: reads the `needs:` graph of active GitHub
@@ -73,6 +73,7 @@ All notable changes to this project are documented here. Format follows
 - Helm chart, published to GHCR as an OCI artifact.
 - Multi-arch container image (linux/amd64, linux/arm64) on GHCR.
 
-[Unreleased]: https://github.com/sarataha/warmrunners/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/sarataha/warmrunners/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sarataha/warmrunners/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/sarataha/warmrunners/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sarataha/warmrunners/releases/tag/v0.1.0
