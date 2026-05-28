@@ -53,8 +53,8 @@ verification commands. Report vulnerabilities via [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
-Issues and PRs welcome. Discussion happens in the
-[GitHub Discussions](https://github.com/sarataha/warmrunners/discussions) tab.
+Issues and PRs welcome. Open an [issue](https://github.com/sarataha/warmrunners/issues)
+to report a bug, propose a feature, or ask a question.
 
 ## License
 
