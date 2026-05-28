@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/sarataha/warmrunners/api/v1alpha1"
+	"github.com/sarataha/warmrunners/internal/activity"
 	"github.com/sarataha/warmrunners/internal/adapter"
 	"github.com/sarataha/warmrunners/internal/demand"
 	"github.com/sarataha/warmrunners/internal/predictor"
@@ -68,14 +69,19 @@ type WarmRunnerPolicyReconciler struct {
 	// to v0.1.x behavior (schedule + reactive only). The field is an
 	// interface so unit tests can inject a stub returning a canned snapshot.
 	Predictor predictor.Predictor
+	// Activity is the recent-CI-activity signal (v0.3.0). When nil the
+	// activity leg is skipped entirely (controller degrades to v0.2.x
+	// behavior). Interface so unit tests can inject a stub.
+	Activity activity.Activity
 
-	// prevPredictedLabels tracks the label-set keys we emitted as
-	// warmrunners_predicted_jobs_total samples for each policy on the
-	// previous reconcile. We DeleteLabelValues for keys that disappear so
-	// the gauge family does not accumulate cardinality from transient
-	// label-sets. Guarded by mu.
+	// prevPredictedLabels / prevActivityLabels track the label-set keys we
+	// emitted as warmrunners_{predicted,activity}_jobs_total samples for each
+	// policy on the previous reconcile. We DeleteLabelValues for keys that
+	// disappear so the gauge family does not accumulate cardinality from
+	// transient label-sets. Both guarded by mu.
 	mu                  sync.Mutex
 	prevPredictedLabels map[string]map[string]struct{}
+	prevActivityLabels  map[string]map[string]struct{}
 }
 
 func (r *WarmRunnerPolicyReconciler) adapterFor(t v1alpha1.Target) (adapter.Adapter, adapter.Ref, bool) {
@@ -165,6 +171,14 @@ func (r *WarmRunnerPolicyReconciler) predictorToken(ctx context.Context, pol *v1
 // Reconcile moves the warm-floor of the target runner backend toward the value
 // the scheduler decides from observed GitHub demand. It never deletes runners,
 // never exceeds floor.max, and never patches the backend on a demand error.
+//
+// nolint:gocyclo // Three independent signal legs (schedule, predictor,
+// activity) + per-leg condition transitions + per-failure-mode error
+// surfacing inherently push this above the 30-branch threshold. Splitting
+// further would require either a shared mutable accumulator struct (worse
+// to read than a flat list of legs) or interleaving each leg's metric
+// emission with its compute, which would split the metrics layer across
+// the file. Same pragmatic exception cmd/main.go already takes.
 func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var pol v1alpha1.WarmRunnerPolicy
 	if err := r.Get(ctx, req.NamespacedName, &pol); err != nil {
@@ -231,7 +245,27 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if predictedContrib > dec.DesiredFloor {
 		dec.DesiredFloor = predictedContrib
 	}
-	// Re-clamp to floor.max (predicted may have raised desired above the cap).
+
+	// Activity leg (v0.3.0). Same shape as the predictor leg: a third
+	// independent signal whose contribution is folded via max() before the
+	// floor.max clamp. The cooldown semantics are preserved for the same
+	// reason: Decide already returned currentApplied when a decrease is
+	// blocked, so max(decide, predicted, activity) never lowers the floor
+	// inside cooldown. See spec §3.2.
+	activityContrib, activityLabelSets, activityPerLabelSet, actErr := r.computeActivity(ctx, &pol)
+	if actErr != nil {
+		log.FromContext(ctx).Error(actErr, "activity error", "policy", pol.Name)
+		setCondition(&pol, "ActivityAvailable", false, v1alpha1.ActivityConditionReasonSampleError, actErr.Error(), pol.Generation)
+		activityContrib = 0
+	} else if r.Activity != nil && (pol.Spec.Activity == nil || pol.Spec.Activity.Enabled) {
+		setCondition(&pol, "ActivityAvailable", true, v1alpha1.ActivityConditionReasonAvailable, "", pol.Generation)
+	}
+
+	if activityContrib > dec.DesiredFloor {
+		dec.DesiredFloor = activityContrib
+	}
+
+	// Re-clamp to floor.max (predicted or activity may have raised above the cap).
 	if dec.DesiredFloor > pol.Spec.Floor.Max {
 		dec.DesiredFloor = pol.Spec.Floor.Max
 	}
@@ -273,6 +307,12 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	} else {
 		pol.Status.PredictedLabelSets = nil
 	}
+	pol.Status.ActivityFloor = activityContrib
+	if len(activityLabelSets) > 0 {
+		pol.Status.ActivityLabelSets = activityLabelSets
+	} else {
+		pol.Status.ActivityLabelSets = nil
+	}
 	statusErr := r.Status().Update(ctx, &pol)
 
 	labels := []string{pol.Name, pol.Spec.Target.Kind()}
@@ -281,6 +321,8 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	queueDepth.WithLabelValues(pol.Name).Set(float64(snap.Queued))
 	predictedFloorGauge.WithLabelValues(pol.Name).Set(float64(predictedContrib))
 	r.emitPredictedJobsMetrics(pol.Name, perLabelSet)
+	activityFloorGauge.WithLabelValues(pol.Name).Set(float64(activityContrib))
+	r.emitActivityJobsMetrics(pol.Name, activityPerLabelSet)
 	if demErr == nil && setErr == nil {
 		if dec.DesiredFloor > current {
 			floorChanges.WithLabelValues(pol.Name, "up").Inc()
@@ -411,6 +453,111 @@ func labelsSuperset(have, want []string) bool {
 		}
 	}
 	return true
+}
+
+// activityTopN caps Status.ActivityLabelSets the same way predictorTopN caps
+// PredictedLabelSets. Aliased rather than duplicated so the two stay in lock
+// step — they're both bounded for the same reason (CR object size).
+const activityTopN = predictorTopN
+
+// activityWindowDefault matches the apiserver default for
+// Spec.Activity.WindowSeconds (900s = 15m). The reconciler substitutes this
+// value when Spec.Activity is nil OR WindowSeconds is zero — both shapes
+// reach us on the fake client used by unit tests, where CRD defaulting does
+// not run. Production envtest/apiserver paths default the field server-side
+// before we ever see it.
+const activityWindowDefault = 15 * time.Minute
+
+// computeActivity runs the Activity sampler (if enabled) and returns the
+// contribution to this policy's floor (sum of counts for label sets that are
+// supersets of the policy's github.labels filter), the top-N label-set
+// entries for status visibility, the full per-label-set map (for the gauge
+// metric), and any sampler error. A nil Activity or a disabled config yields
+// zero contribution and no error.
+func (r *WarmRunnerPolicyReconciler) computeActivity(
+	ctx context.Context,
+	pol *v1alpha1.WarmRunnerPolicy,
+) (int32, []v1alpha1.PredictedLabelSet, map[string]int, error) {
+	if r.Activity == nil {
+		return 0, nil, nil, nil
+	}
+	if pol.Spec.Activity != nil && !pol.Spec.Activity.Enabled {
+		return 0, nil, nil, nil
+	}
+
+	window := activityWindowDefault
+	if pol.Spec.Activity != nil && pol.Spec.Activity.WindowSeconds > 0 {
+		window = time.Duration(pol.Spec.Activity.WindowSeconds) * time.Second
+	}
+
+	// Built-in denylist always applies; user-supplied entries are appended,
+	// never replace the builtin (spec §3.5).
+	denylist := append([]string(nil), activity.BuiltinDenylist...)
+	if pol.Spec.Activity != nil {
+		denylist = append(denylist, pol.Spec.Activity.BotLoginDenylist...)
+	}
+
+	// Reuse the same token resolution the predictor uses so a misconfigured
+	// Secret surfaces once via ActivityAvailable/PredictorAvailable rather
+	// than twice via parallel resolvers diverging.
+	token, terr := r.predictorToken(ctx, pol)
+	if terr != nil {
+		return 0, nil, nil, terr
+	}
+
+	sample, err := r.Activity.Sample(ctx, pol.Spec.GitHub.Owner, pol.Spec.GitHub.Repository, token, window, denylist)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+
+	var contrib int32
+	matched := make([]v1alpha1.PredictedLabelSet, 0, len(sample.PerLabelSet))
+	want := pol.Spec.GitHub.Labels
+	for key, count := range sample.PerLabelSet {
+		labels := splitLabelSetKey(key)
+		if !labelsSuperset(labels, want) {
+			continue
+		}
+		contrib += int32(count)                                                                    //nolint:gosec // job counts are bounded by runsCap
+		matched = append(matched, v1alpha1.PredictedLabelSet{Labels: labels, Count: int32(count)}) //nolint:gosec
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		if matched[i].Count != matched[j].Count {
+			return matched[i].Count > matched[j].Count
+		}
+		return predictor.LabelSetKey(matched[i].Labels) < predictor.LabelSetKey(matched[j].Labels)
+	})
+	if len(matched) > activityTopN {
+		matched = matched[:activityTopN]
+	}
+	if len(matched) == 0 {
+		matched = nil
+	}
+	return contrib, matched, sample.PerLabelSet, nil
+}
+
+// emitActivityJobsMetrics is the activity sibling of emitPredictedJobsMetrics:
+// one warmrunners_activity_jobs_total sample per label set, with stale-key
+// pruning to bound cardinality.
+func (r *WarmRunnerPolicyReconciler) emitActivityJobsMetrics(policy string, perLabelSet map[string]int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.prevActivityLabels == nil {
+		r.prevActivityLabels = make(map[string]map[string]struct{})
+	}
+	prev := r.prevActivityLabels[policy]
+	curr := make(map[string]struct{}, len(perLabelSet))
+	for key, count := range perLabelSet {
+		activityJobsGauge.WithLabelValues(policy, key).Set(float64(count))
+		curr[key] = struct{}{}
+	}
+	for key := range prev {
+		if _, ok := curr[key]; !ok {
+			activityJobsGauge.DeleteLabelValues(policy, key)
+		}
+	}
+	r.prevActivityLabels[policy] = curr
 }
 
 // emitPredictedJobsMetrics sets one warmrunners_predicted_jobs_total sample
