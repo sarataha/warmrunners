@@ -6,6 +6,38 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-28
+
+### Added
+- **Activity-driven warm-floor signal**: while a repo has recent non-bot
+  `workflow_run`s in the last 15 min (configurable), the floor is sized to the
+  actual matrix fanout of those workflows. Quiet repo → floor drops to 0 so no
+  warm capacity is paid for during off-hours. Bot filter covers `actor.type`,
+  `triggering_actor.type`, `[bot]` login suffix, and a built-in + user-appendable
+  denylist (Dependabot, Renovate, GitHub Actions, Mergify, Codecov, Copilot,
+  self-hosted Renovate).
+- New CRD fields: `spec.activity.{enabled, windowSeconds, botLoginDenylist}`
+  with sensible defaults (true / 900 / built-in only).
+- New status fields: `status.activityFloor`, `status.activityLabelSets`
+  (top-8 by count), and `ActivityAvailable` condition.
+- New printer column: `Active`.
+- New metrics: `warmrunners_activity_floor{policy}`,
+  `warmrunners_activity_jobs_total{policy,labels}`,
+  `warmrunners_activity_bot_filtered_total{reason}`.
+
+### Changed
+- Floor formula folds the activity signal as a third `max(...)` candidate:
+  `desiredFloor = clamp(max(scheduleBase, predictedContribution, activityContribution), floor.min, min(floor.max, backendMax))`.
+
+### Removed
+- `spec.queueRule.headroom` and the `HeadroomTier` CRD type — deleted outright
+  (the project is `v1alpha1` with no known production users). The old field
+  double-counted ARC's reactive scaling: with `Headroom: [{whenQueueAtLeast: 5,
+  addRunners: 3}]` and 5 jobs queued, ARC requested 5 runners reactively AND
+  warmrunners set `minRunners: 8` — net 8 runners for 5 jobs, three idle. The
+  activity signal replaces it with the right shape (size from parsed YAML,
+  trigger from recent runs rather than queued counts).
+
 ## [0.2.1] - 2026-05-28
 
 ### Fixed
@@ -85,7 +117,8 @@ All notable changes to this project are documented here. Format follows
 - Helm chart, published to GHCR as an OCI artifact.
 - Multi-arch container image (linux/amd64, linux/arm64) on GHCR.
 
-[Unreleased]: https://github.com/sarataha/warmrunners/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/sarataha/warmrunners/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/sarataha/warmrunners/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/sarataha/warmrunners/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sarataha/warmrunners/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/sarataha/warmrunners/compare/v0.1.0...v0.1.1
