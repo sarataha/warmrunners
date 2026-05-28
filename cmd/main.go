@@ -188,10 +188,12 @@ func main() {
 	}
 
 	// Predictor (v0.2.0). One *WorkflowNeedsGraph per process is shared
-	// across all WarmRunnerPolicy reconciles — the per-policy auth context
-	// is supplied through the request transport, not here (the v0.2.0 cut
-	// uses unauthenticated requests for public repos; per-policy auth flows
-	// in a later patch alongside the reactive poller's secret handling).
+	// across all WarmRunnerPolicy reconciles — the per-policy GitHub token
+	// is plumbed at reconcile time (resolved from each policy's auth
+	// secretRef and passed positionally to Predict / Fetch), not at
+	// construction. v0.2.0 shipped with no auth wiring here and observed
+	// 404s on every /actions/runs call against private/rate-limited repos;
+	// v0.2.1 closed that path.
 	//
 	// TODO(v0.2.x): per-policy MaxRunsPerPoll plumbing. Today the
 	// constructor takes a process-global cap (0 = DefaultRunsCap = 50).
