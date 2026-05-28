@@ -6,6 +6,18 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-28
+
+### Fixed
+- Predictor authentication: `Predictor.Predict` and `WorkflowFetcher.Fetch` now
+  take a `token` argument and set `Authorization: Bearer <token>` on every
+  outbound GitHub REST request (with `strings.TrimSpace` defense against
+  newline-in-secret bugs, mirroring the v0.1.x demand source). v0.2.0 shipped a
+  non-functional predictor — the GitHub Actions REST API returns 404 to
+  unauthenticated requests even on public repos, so the predictor's API calls
+  always failed and the codebase-aware contribution was effectively zero.
+  Verified end-to-end on real cluster + real `workflow_dispatch` run.
+
 ## [0.2.0] - 2026-05-28
 
 ### Added
@@ -73,7 +85,8 @@ All notable changes to this project are documented here. Format follows
 - Helm chart, published to GHCR as an OCI artifact.
 - Multi-arch container image (linux/amd64, linux/arm64) on GHCR.
 
-[Unreleased]: https://github.com/sarataha/warmrunners/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/sarataha/warmrunners/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/sarataha/warmrunners/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sarataha/warmrunners/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/sarataha/warmrunners/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sarataha/warmrunners/releases/tag/v0.1.0

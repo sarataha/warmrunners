@@ -65,7 +65,7 @@ More samples in [`examples/`](examples/) (ARC + GARM).
 ## Install
 
 ```sh
-helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners --version 0.2.0
+helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners --version 0.2.1
 ```
 
 Then create a `Secret` with a GitHub token and a `WarmRunnerPolicy` (see [`examples/`](examples/)).
@@ -79,12 +79,12 @@ Release images and charts are signed with [cosign](https://github.com/sigstore/c
 cosign verify \
   --certificate-identity-regexp="^https://github.com/sarataha/warmrunners/.github/workflows/release.yml@refs/tags/v.*$" \
   --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-  ghcr.io/sarataha/warmrunners:v0.2.0
+  ghcr.io/sarataha/warmrunners:v0.2.1
 
 cosign verify \
   --certificate-identity-regexp="^https://github.com/sarataha/warmrunners/.github/workflows/release.yml@refs/tags/v.*$" \
   --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-  ghcr.io/sarataha/charts/warmrunners:0.2.0
+  ghcr.io/sarataha/charts/warmrunners:0.2.1
 ```
 
 Each image also carries an attested SPDX SBOM:
@@ -93,7 +93,7 @@ Each image also carries an attested SPDX SBOM:
 cosign verify-attestation --type spdxjson \
   --certificate-identity-regexp="^https://github.com/sarataha/warmrunners/.github/workflows/release.yml@refs/tags/v.*$" \
   --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-  ghcr.io/sarataha/warmrunners:v0.2.0
+  ghcr.io/sarataha/warmrunners:v0.2.1
 ```
 
 ## Backends
@@ -105,9 +105,6 @@ Exposes Prometheus metrics (`warmrunners_desired_floor`, `_applied_floor`, `_que
 
 ## Roadmap
 
-- **v0.2.0** — codebase-aware predictor: read the `needs:` graph of active `workflow_runs`
-  and pre-warm downstream runner types (e.g. GPU) while their upstream jobs (e.g. lint) are
-  still running.
 - **v0.3.0** — activity-based volume multiplier: scale a baseline floor by recent
   PR / push activity.
 - **v0.4.0** — conflict-detection admission webhook; richer queue rules.
