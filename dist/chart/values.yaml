@@ -7,7 +7,6 @@ controllerManager:
       tag: latest
     imagePullPolicy: IfNotPresent
     args:
-      - "--leader-elect"
       - "--metrics-bind-address=:8443"
       - "--health-probe-bind-address=:8081"
     resources:
