@@ -27,10 +27,14 @@ See [`examples/`](examples/) for full policies.
 ## Install
 
 ```sh
-helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners --version 0.3.0
+helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners \
+  --version 0.3.0 --namespace warmrunners-system --create-namespace
 ```
 
 Then create a `Secret` with a GitHub token and a `WarmRunnerPolicy` (see [`examples/`](examples/)).
+
+Other methods (raw YAML, Flux, Argo CD, source) and a verification walkthrough
+live in [`docs/installation.md`](docs/installation.md).
 
 ## Backends
 
