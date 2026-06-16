@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sarataha/warmrunners/internal/ghapi"
 	"github.com/sarataha/warmrunners/internal/version"
 )
 
@@ -156,6 +157,7 @@ func (p *GitHubRESTPoller) doWithRetry(ctx context.Context, u string) (*http.Res
 			}
 			continue
 		}
+		ghapi.RecordRateLimit(ghapi.SourceDemand, resp.Header)
 
 		// Decide whether to retry based on status.
 		switch {

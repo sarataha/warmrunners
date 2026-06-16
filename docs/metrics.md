@@ -44,6 +44,15 @@ access.
 |---|---|---|---|
 | `warmrunners_dry_run_skipped_patches_total` | Counter | `policy` | Backend patches skipped because `spec.dryRun` was true. Watch this during canary to confirm the controller would have acted. |
 
+## GitHub rate limit (v0.4.0)
+
+| Name | Type | Labels | Meaning |
+|---|---|---|---|
+| `warmrunners_github_rate_limit_remaining` | Gauge | `source` | Last `X-RateLimit-Remaining` observed on a GitHub REST response. `source` ∈ `demand`/`workflow`. |
+| `warmrunners_github_rate_limit_reset_seconds` | Gauge | `source` | Last `X-RateLimit-Reset` (unix seconds). Pair with `time()` to estimate seconds until the quota window resets. |
+
+See [`docs/rate-limits.md`](rate-limits.md) for tuning guidance.
+
 ## Useful queries
 
 `desiredFloor` not reaching `appliedFloor`:
