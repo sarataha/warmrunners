@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+
 	"github.com/sarataha/warmrunners/api/v1alpha1"
 	"github.com/sarataha/warmrunners/internal/activity"
 	"github.com/sarataha/warmrunners/internal/adapter"
@@ -35,9 +37,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // githubBaseURL is the GitHub REST API base used when constructing a
@@ -356,7 +360,14 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 // SetupWithManager sets up the controller with the Manager.
 func (r *WarmRunnerPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.WarmRunnerPolicy{}).
+		// GenerationChangedPredicate filters out events where only .status
+		// changed. Without it, each Status().Update fires a watch event,
+		// schedules another reconcile against a still-stale informer cache,
+		// and the resulting RV mismatch produces "object has been modified"
+		// conflicts every loop. The 30s pollInterval requeue is what drives
+		// steady-state reconciliation; spec changes still bump Generation
+		// and trigger immediate reconciles as expected.
+		For(&v1alpha1.WarmRunnerPolicy{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("warmrunnerpolicy").
 		WithOptions(controller.Options{MaxConcurrentReconciles: r.MaxConcurrentReconciles}).
 		Complete(r)
@@ -601,19 +612,15 @@ func setCondition(p *v1alpha1.WarmRunnerPolicy, ctype string, ok bool, reason, m
 	if !ok {
 		status = metav1.ConditionFalse
 	}
-	for i := range p.Status.Conditions {
-		if p.Status.Conditions[i].Type == ctype {
-			p.Status.Conditions[i].Status = status
-			p.Status.Conditions[i].Reason = reason
-			p.Status.Conditions[i].Message = msg
-			p.Status.Conditions[i].LastTransitionTime = metav1.Now()
-			p.Status.Conditions[i].ObservedGeneration = generation
-			return
-		}
-	}
-	p.Status.Conditions = append(p.Status.Conditions, metav1.Condition{
-		Type: ctype, Status: status, Reason: reason, Message: msg,
-		LastTransitionTime: metav1.Now(),
+	// Delegate to apimachinery so LastTransitionTime only advances when Status
+	// actually transitions. Rewriting it on every reconcile produces a fresh
+	// status payload per loop and triggers resource-version conflicts under
+	// continuous reconcile pressure.
+	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+		Type:               ctype,
+		Status:             status,
+		Reason:             reason,
+		Message:            msg,
 		ObservedGeneration: generation,
 	})
 }
