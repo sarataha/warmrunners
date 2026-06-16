@@ -38,6 +38,12 @@ access.
 | `warmrunners_activity_jobs_total` | Gauge | `policy,labels` | Per-label-set job count from the Activity sampler. Pruned across reconciles. |
 | `warmrunners_activity_bot_filtered_total` | Counter | `reason` | Bot-filtered `workflow_run`s. `reason` ∈ `bot_type`/`trigger_bot_type`/`bot_suffix`/`denylist`. |
 
+## Dry-run (v0.4.0)
+
+| Name | Type | Labels | Meaning |
+|---|---|---|---|
+| `warmrunners_dry_run_skipped_patches_total` | Counter | `policy` | Backend patches skipped because `spec.dryRun` was true. Watch this during canary to confirm the controller would have acted. |
+
 ## Useful queries
 
 `desiredFloor` not reaching `appliedFloor`:

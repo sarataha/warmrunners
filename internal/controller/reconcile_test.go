@@ -107,6 +107,53 @@ func TestReconcile_PatchesWhenDesiredDiffers(t *testing.T) {
 	}
 }
 
+func TestReconcile_DryRun_SkipsSetFloor(t *testing.T) {
+	sch := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(sch)
+	arc := newARC(0)
+	pol := newPolicy()
+	pol.Spec.Floor.Min = 4 // would force desired = 4 in non-dry-run mode
+	pol.Spec.DryRun = true
+	cl := fake.NewClientBuilder().WithScheme(sch).WithObjects(arc, pol).WithStatusSubresource(pol).Build()
+
+	r := &WarmRunnerPolicyReconciler{
+		Client: cl, Scheme: sch,
+		Scheduler: scheduler.NewHeuristic(),
+		Demand:    stubDemand{},
+	}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "p", Namespace: "default"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := &unstructured.Unstructured{}
+	got.SetGroupVersionKind(arc.GroupVersionKind())
+	_ = cl.Get(context.Background(), types.NamespacedName{Name: "prod-runners", Namespace: "arc-system"}, got)
+	if v, _, _ := unstructured.NestedInt64(got.Object, "spec", "minRunners"); v != 0 {
+		t.Fatalf("dry-run patched backend: minRunners = %d, want 0", v)
+	}
+
+	var pl v1alpha1.WarmRunnerPolicy
+	_ = cl.Get(context.Background(), types.NamespacedName{Name: "p", Namespace: "default"}, &pl)
+	if !pl.Status.DryRun {
+		t.Fatalf("status.dryRun = false, want true (mirror of spec)")
+	}
+	if pl.Status.DesiredFloor != 4 {
+		t.Fatalf("status.desiredFloor = %d, want 4 (computed even in dry-run)", pl.Status.DesiredFloor)
+	}
+	if pl.Status.AppliedFloor != 0 {
+		t.Fatalf("status.appliedFloor = %d, want 0 (no patch happened)", pl.Status.AppliedFloor)
+	}
+	var found bool
+	for _, c := range pl.Status.Conditions {
+		if c.Type == v1alpha1.DryRunConditionType && c.Status == metav1.ConditionTrue && c.Reason == v1alpha1.DryRunConditionReasonActive {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("DryRun=True condition not set; got %+v", pl.Status.Conditions)
+	}
+}
+
 func TestReconcile_DemandError_SetsCondition(t *testing.T) {
 	sch := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(sch)

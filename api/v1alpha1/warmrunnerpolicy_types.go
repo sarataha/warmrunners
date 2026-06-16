@@ -168,6 +168,14 @@ type WarmRunnerPolicySpec struct {
 	Predictor *PredictorConfig `json:"predictor,omitempty"`
 	// +optional
 	Activity *ActivityConfig `json:"activity,omitempty"`
+	// DryRun stops the controller from patching the backend's warm-floor field
+	// while keeping every other signal (demand poll, predictor, activity,
+	// scheduler, status, metrics) live. Use to canary a new policy and watch
+	// what the controller WOULD apply before letting it act. Default false.
+	//
+	// +kubebuilder:default=false
+	// +optional
+	DryRun bool `json:"dryRun,omitempty"`
 }
 
 type WarmRunnerPolicyStatus struct {
@@ -192,6 +200,12 @@ type WarmRunnerPolicyStatus struct {
 	// +listType=atomic
 	// +optional
 	ActivityLabelSets []PredictedLabelSet `json:"activityLabelSets,omitempty"`
+
+	// DryRun mirrors spec.dryRun so operators can confirm at a glance that
+	// the controller is in observe-only mode.
+	// +optional
+	DryRun bool `json:"dryRun,omitempty"`
+
 	// +patchMergeKey=type
 	// +patchStrategy=merge
 	// +listType=map
@@ -199,6 +213,13 @@ type WarmRunnerPolicyStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
+
+// Condition type + reason strings for the dry-run signal (v0.4.0).
+const (
+	DryRunConditionType           = "DryRun"
+	DryRunConditionReasonActive   = "Active"
+	DryRunConditionReasonInactive = "Inactive"
+)
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

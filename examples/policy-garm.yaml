@@ -26,3 +26,7 @@ spec:
   queueRule:
     pollInterval: 30s
     cooldown: 2m
+  # spec.dryRun — observe-only mode (v0.4.0). All signals still compute and
+  # show in status + metrics; the controller never patches the backend.
+  # Use to canary a new policy before it acts.
+  # dryRun: true
