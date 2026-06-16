@@ -90,6 +90,14 @@ spec:
                     minimum: 60
                     type: integer
                 type: object
+              dryRun:
+                default: false
+                description: |-
+                  DryRun stops the controller from patching the backend's warm-floor field
+                  while keeping every other signal (demand poll, predictor, activity,
+                  scheduler, status, metrics) live. Use to canary a new policy and watch
+                  what the controller WOULD apply before letting it act. Default false.
+                type: boolean
               floor:
                 properties:
                   max:
@@ -365,6 +373,11 @@ spec:
               desiredFloor:
                 format: int32
                 type: integer
+              dryRun:
+                description: |-
+                  DryRun mirrors spec.dryRun so operators can confirm at a glance that
+                  the controller is in observe-only mode.
+                type: boolean
               lastDecreaseTime:
                 description: |-
                   LastDecreaseTime is when the warm-floor was last decreased. It feeds the

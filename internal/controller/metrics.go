@@ -84,6 +84,15 @@ var (
 		prometheus.CounterOpts{Name: "warmrunners_activity_bot_filtered_total", Help: "Bot-filtered workflow_runs by reason."},
 		[]string{"reason"},
 	)
+
+	// dryRunSkippedPatches counts every backend Patch the controller
+	// would have issued but skipped because spec.dryRun was true. Operators
+	// rely on this to confirm "the controller would have acted N times"
+	// during canary observation.
+	dryRunSkippedPatches = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: "warmrunners_dry_run_skipped_patches_total", Help: "Backend patches skipped because spec.dryRun was true."},
+		[]string{"policy"},
+	)
 )
 
 func init() {
@@ -91,6 +100,7 @@ func init() {
 		desiredFloor, appliedFloor, queueDepth, floorChanges, buildInfo, reconcileErrors,
 		predictedFloorGauge, predictedJobsGauge, workflowYAMLFetchTotal,
 		activityFloorGauge, activityJobsGauge, activityBotFilteredTotal,
+		dryRunSkippedPatches,
 	)
 	buildInfo.WithLabelValues(version.Version, version.Commit, version.BuildDate).Set(1)
 }

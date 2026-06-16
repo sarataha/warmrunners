@@ -278,11 +278,17 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	now := metav1.Now()
 	var setErr error
+	skippedByDryRun := false
 	if demErr == nil && dec.DesiredFloor != current {
-		setErr = ad.SetFloor(ctx, ref, dec.DesiredFloor)
-		// Stamp LastDecreaseTime only when a decrease actually landed.
-		if setErr == nil && dec.DesiredFloor < current {
-			pol.Status.LastDecreaseTime = &now
+		if pol.Spec.DryRun {
+			skippedByDryRun = true
+			dryRunSkippedPatches.WithLabelValues(pol.Name).Inc()
+		} else {
+			setErr = ad.SetFloor(ctx, ref, dec.DesiredFloor)
+			// Stamp LastDecreaseTime only when a decrease actually landed.
+			if setErr == nil && dec.DesiredFloor < current {
+				pol.Status.LastDecreaseTime = &now
+			}
 		}
 	}
 	if setErr != nil {
@@ -290,15 +296,22 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 	setCondition(&pol, "AdapterAvailable", setErr == nil, errReason(setErr), errMsg(setErr), pol.Generation)
 
+	if pol.Spec.DryRun {
+		setCondition(&pol, v1alpha1.DryRunConditionType, true, v1alpha1.DryRunConditionReasonActive, "", pol.Generation)
+	} else {
+		setCondition(&pol, v1alpha1.DryRunConditionType, false, v1alpha1.DryRunConditionReasonInactive, "", pol.Generation)
+	}
+
 	// applied = what's actually on the backend now. On a demand or patch
-	// failure the floor was not changed, so it stays at current.
+	// failure, or when dry-run skipped the patch, the floor was not changed.
 	applied := dec.DesiredFloor
-	if demErr != nil || setErr != nil {
+	if demErr != nil || setErr != nil || skippedByDryRun {
 		applied = current
 	}
 
 	pol.Status.DesiredFloor = dec.DesiredFloor
 	pol.Status.AppliedFloor = applied
+	pol.Status.DryRun = pol.Spec.DryRun
 	pol.Status.LastQueueDepth = snap.Queued
 	pol.Status.LastReconcileTime = &now
 	pol.Status.PredictedFloor = predictedContrib
