@@ -1,0 +1,13 @@
+# examples/pdb.yaml — PodDisruptionBudget for multi-replica controller deploys.
+# Skip if you run a single replica.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: warmrunners-controller-manager
+  namespace: warmrunners-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      app.kubernetes.io/name: warmrunners
