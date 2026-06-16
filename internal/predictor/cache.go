@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sarataha/warmrunners/internal/ghapi"
 )
 
 // ErrNotFound is returned by WorkflowFetcher.Fetch when GitHub responds with
@@ -196,6 +198,7 @@ func (f *workflowFetcher) Fetch(ctx context.Context, owner, repo, path, ref, tok
 			}
 			continue
 		}
+		ghapi.RecordRateLimit(ghapi.SourceWorkflow, resp.Header)
 
 		switch {
 		case resp.StatusCode == http.StatusOK:
