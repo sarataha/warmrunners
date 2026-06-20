@@ -45,5 +45,7 @@ jobs:
 
       - name: govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # v1.4.0 panics on Go 1.25 generics (x/tools v0.46.0 ForEachElement bug).
+          # Pin to v1.1.4 until upstream fixes.
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           govulncheck ./...

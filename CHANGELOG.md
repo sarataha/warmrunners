@@ -6,6 +6,49 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-17
+
+### Added
+- **Dry-run mode**: new `spec.dryRun` field (default `false`). When `true` every
+  signal (demand, predictor, activity, scheduler, status, metrics) still runs but
+  the controller never patches the backend's warm-floor field. Canary path for
+  observing what would change before letting the controller act. Mirrored to
+  `status.dryRun` and the `DryRun` condition; new
+  `warmrunners_dry_run_skipped_patches_total{policy}` counter records skips.
+- **GitHub rate-limit observability**: two new gauges
+  `warmrunners_github_rate_limit_remaining{source}` and
+  `warmrunners_github_rate_limit_reset_seconds{source}` populated from response
+  headers on every demand poll and workflow fetch. `source` ∈ `demand`/`workflow`.
+- `docs/rate-limits.md` covers quotas, cost math, and tuning.
+- `docs/installation.md` covers Helm, raw kubectl, Flux `HelmRelease`,
+  Argo CD `Application`, and source builds, with verification + upgrade +
+  uninstall sections.
+- `docs/runbook.md` operator playbook: stuck reconcile, GitHub auth failure,
+  rate-limit exhaustion, controller OOM, leader fight, dry-run flip.
+- `docs/upgrade.md` v0.3 → v0.4 migration walk-through.
+- `examples/alerts.yaml` Prometheus `PrometheusRule` covering the new gauges,
+  reconcile errors, and dry-run skip rate.
+- `examples/pdb.yaml` PodDisruptionBudget for multi-replica deploys.
+- `examples/netpol.yaml` NetworkPolicy restricting egress to the GitHub REST
+  API and the kube-apiserver.
+
+### Changed
+- Leader election defaults to enabled. Multi-replica deploys are safe out of
+  the box; pass `--leader-elect=false` for single-process local development
+  (the bundled Helm chart and kustomize manager manifest no longer set the
+  flag explicitly).
+
+### Fixed
+- Stop "Operation cannot be fulfilled" reconcile spam: `SetupWithManager` now
+  uses `GenerationChangedPredicate` so own `Status().Update` events do not
+  schedule another reconcile against a stale informer cache, and `setCondition`
+  delegates to `meta.SetStatusCondition` so `LastTransitionTime` only advances
+  on a real True/False transition. Pre-existing since v0.1.0; caught by the
+  v0.4.0 kind exercise.
+
+### Build / tooling
+- Bump `golangci-lint` to `v2.12.2` (Go 1.25 compatible).
+
 ## [0.3.0] - 2026-05-28
 
 ### Added

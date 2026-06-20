@@ -1,0 +1,50 @@
+# examples/netpol.yaml — NetworkPolicy restricting controller egress.
+# Permits api.github.com (REST + Pricing) and kube-apiserver only.
+# Adjust the CIDR for your cluster's kube-apiserver and any private GitHub
+# Enterprise endpoint you may use.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: warmrunners-controller-manager
+  namespace: warmrunners-system
+spec:
+  podSelector:
+    matchLabels:
+      control-plane: controller-manager
+      app.kubernetes.io/name: warmrunners
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Allow Prometheus scrapes from the monitoring namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8443
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # GitHub REST API (and GHES if you use one — add its CIDR).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+      ports:
+        - protocol: TCP
+          port: 443
+    # kube-apiserver — replace with your cluster's API server CIDR.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 6443

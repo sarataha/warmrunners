@@ -1,0 +1,52 @@
+# examples/alerts.yaml — Prometheus alert rules covering the v0.4.0 surface.
+# Tune the thresholds and `for:` windows to your environment.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: warmrunners
+  namespace: warmrunners-system
+  labels:
+    app.kubernetes.io/name: warmrunners
+spec:
+  groups:
+    - name: warmrunners
+      rules:
+        - alert: WarmrunnersReconcileErrorsRising
+          expr: sum by (policy) (rate(warmrunners_reconciliation_errors_total[5m])) > 0.05
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "warmrunners reconcile errors on {{ $labels.policy }}"
+            description: "More than 0.05 reconcile errors/s for 10 minutes. Check controller logs and `kubectl describe wrp {{ $labels.policy }}`."
+
+        - alert: WarmrunnersGitHubRateLimitLow
+          expr: min by (source) (warmrunners_github_rate_limit_remaining) < 500
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "GitHub API quota low on {{ $labels.source }}"
+            description: "< 500 requests left in the current window. Raise pollInterval, lower maxRunsPerPoll, or split policies across tokens. See docs/rate-limits.md."
+
+        - alert: WarmrunnersGitHubRateLimitExhausted
+          expr: min by (source) (warmrunners_github_rate_limit_remaining) == 0
+          for: 1m
+          labels: { severity: critical }
+          annotations:
+            summary: "GitHub API quota exhausted on {{ $labels.source }}"
+            description: "Floor is frozen at last value until the quota window resets at `warmrunners_github_rate_limit_reset_seconds`."
+
+        - alert: WarmrunnersDryRunSkipping
+          expr: sum by (policy) (rate(warmrunners_dry_run_skipped_patches_total[15m])) > 0
+          for: 1h
+          labels: { severity: info }
+          annotations:
+            summary: "{{ $labels.policy }} still in dry-run after 1h"
+            description: "Set `spec.dryRun: false` once you have confidence in the prediction."
+
+        - alert: WarmrunnersStuck
+          expr: time() - max by (policy) (warmrunners_applied_floor) > 0 and absent_over_time(warmrunners_applied_floor[5m])
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "warmrunners controller silent"
+            description: "No metrics scraped in 5 minutes. Check pod and leader lease."
