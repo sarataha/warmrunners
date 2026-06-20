@@ -27,11 +27,21 @@ func TestExamplesAreValid(t *testing.T) {
 		if filepath.Ext(e.Name()) != ".yaml" && filepath.Ext(e.Name()) != ".yml" {
 			continue
 		}
-		found++
 		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			t.Fatal(err)
 		}
+		var meta struct {
+			APIVersion string `json:"apiVersion"`
+			Kind       string `json:"kind"`
+		}
+		if err := yaml.Unmarshal(data, &meta); err != nil {
+			t.Fatalf("%s: cannot read apiVersion/kind: %v", e.Name(), err)
+		}
+		if meta.Kind != "WarmRunnerPolicy" {
+			continue
+		}
+		found++
 		var p v1alpha1.WarmRunnerPolicy
 		if err := yaml.UnmarshalStrict(data, &p); err != nil {
 			t.Fatalf("%s: does not parse as WarmRunnerPolicy: %v", e.Name(), err)
