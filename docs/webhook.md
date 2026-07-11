@@ -7,7 +7,23 @@ GitHub REST API every `pollInterval`. With a `GitHubApp` configured and
 referenced from a policy, a `push` fires the App's webhook, the receiver
 verifies and parses it, and the policy's floor bumps immediately — usually
 under a second, well before the matching `workflow_run` would appear in a poll
-cycle. If the webhook path goes down (relay unreachable, App misconfigured,
+cycle.
+
+## What that saves
+
+First-CI wait on a cold pool is `poll gap + runner boot`. Poll gap is up to
+`pollInterval` (30 s default); runner boot is 15–30 s. Webhook mode cuts the
+poll gap to ~1 s.
+
+| Push in a quiet period                | Without webhook | With webhook |
+|---------------------------------------|-----------------|--------------|
+| First push (cold pool)                | ~45–60 s        | ~16–31 s     |
+| Subsequent pushes in the active window| ~15–30 s        | ~2 s         |
+
+The rolling `activeWindowSeconds` (default 600) keeps the pool warm across a
+dev session, so back-to-back pushes assign to already-idle runners instead of
+paying the boot cost each time.
+ If the webhook path goes down (relay unreachable, App misconfigured,
 ingress flaky), the poller keeps running underneath it and the controller
 falls back to REST observations automatically.
 

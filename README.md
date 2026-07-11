@@ -25,6 +25,17 @@ The activity signal is fed by REST polling by default. Point a policy at a
 push, instead of waiting for the next poll. See
 [`docs/webhook.md`](docs/webhook.md).
 
+### What that saves
+
+For a repo running self-hosted runners with `minRunners: 0`, first-CI wait is
+`poll gap + runner boot`. Poll gap is up to `pollInterval` (30s default);
+runner boot is 15–30s. Webhook mode cuts the poll gap to ~1s, so the first
+push in a quiet period drops from **~45–60 s to ~16–31 s**. Every subsequent
+push inside the rolling activity window (default 10 min) hits an already-idle
+runner and starts in ~2 s. Across a busy dev session that adds up: ~15–30 s
+per push saved on average, and the "wait, why is CI slow?" moment on the
+first commit largely goes away.
+
 Decreases are rate-limited by a cooldown. The controller never deletes runners.
 
 See [`examples/`](examples/) for full policies.
