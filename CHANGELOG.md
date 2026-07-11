@@ -15,10 +15,10 @@ All notable changes to this project are documented here. Format follows
   events feed the activity signal within ~1s of arrival, instead of waiting
   for the next REST poll. HMAC-SHA256 verification, LRU replay guard
   (10 000 IDs / 24h), 1 MiB body cap.
-- **Tunnel mode**: `GitHubApp.spec.ingress.mode: tunnel` opens an outbound
-  WebSocket to a smee.io-compatible relay. Zero-ingress path for kind, laptops,
-  and single-node clusters. Auto-reconnect with exponential backoff (500ms →
-  30s cap, full jitter).
+- **Tunnel mode**: `GitHubApp.spec.ingress.mode: tunnel` subscribes to a
+  smee.io-compatible SSE relay over outbound HTTPS. Zero-ingress path for
+  kind, laptops, and single-node clusters. Auto-reconnect with exponential
+  backoff (500ms → 30s cap, full jitter).
 - **`WarmRunnerPolicy` fields**: `spec.githubAppRef`, `spec.activeWindowSeconds`
   (default 600, range 60–3600). Status: `activeUntil`, `lastEventSource`
   (`webhook`/`poll`).

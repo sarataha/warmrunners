@@ -7,7 +7,23 @@ GitHub REST API every `pollInterval`. With a `GitHubApp` configured and
 referenced from a policy, a `push` fires the App's webhook, the receiver
 verifies and parses it, and the policy's floor bumps immediately — usually
 under a second, well before the matching `workflow_run` would appear in a poll
-cycle. If the webhook path goes down (relay unreachable, App misconfigured,
+cycle.
+
+## What that saves
+
+First-CI wait on a cold pool is `poll gap + runner boot`. Poll gap is up to
+`pollInterval` (30 s default); runner boot is 15–30 s. Webhook mode cuts the
+poll gap to ~1 s.
+
+| Push in a quiet period                | Without webhook | With webhook |
+|---------------------------------------|-----------------|--------------|
+| First push (cold pool)                | ~45–60 s        | ~16–31 s     |
+| Subsequent pushes in the active window| ~15–30 s        | ~2 s         |
+
+The rolling `activeWindowSeconds` (default 600) keeps the pool warm across a
+dev session, so back-to-back pushes assign to already-idle runners instead of
+paying the boot cost each time.
+ If the webhook path goes down (relay unreachable, App misconfigured,
 ingress flaky), the poller keeps running underneath it and the controller
 falls back to REST observations automatically.
 
@@ -65,6 +81,14 @@ falls back to REST observations automatically.
 
 ## Setup — tunnel mode
 
+> **Dev/kind only.** Tunnel mode subscribes to a smee.io-compatible SSE relay,
+> which decodes and re-serialises the webhook payload. That breaks the HMAC
+> signature GitHub computed over the original bytes, so tunnel mode
+> **does not verify HMAC** — it trusts that anyone who reaches the relay's
+> unguessable channel URL is authorised. Use ingress mode in production.
+
+
+
 For kind, single-node clusters, or air-gapped clusters that still allow
 outbound traffic — no Ingress required.
 
@@ -80,7 +104,7 @@ outbound traffic — no Ingress required.
      ingress:
        mode: tunnel
        tunnel:
-         relayURL: wss://smee.io/abcdef123
+         relayURL: https://smee.io/abcdef123
    ```
 
 5. **Important**: the smee URL *is* the bearer secret — anyone who knows it
@@ -104,8 +128,8 @@ spec:
   `webhook` within about a second.
 - `kubectl get wrp <name> -o jsonpath='{.status.activeUntil}'` is non-empty.
 - Metrics confirm the same thing:
-  `warmrunners_webhook_events_total{event="push",verified="true"}`
-  incremented, and
+  `warmrunners_webhook_events_total{event="push",verified="true"}` (ingress)
+  or `…,verified="tunnel"` (tunnel) incremented, and
   `warmrunners_active_window_seconds_remaining{repo="..."}` > 0.
 
 ## Poll fallback

@@ -22,7 +22,9 @@ type SecretKeyRef struct {
 }
 
 type TunnelSpec struct {
-	// +kubebuilder:validation:Pattern=`^wss://.+`
+	// RelayURL is the smee.io-compatible SSE relay endpoint the tunnel
+	// client subscribes to. Must be an https:// URL.
+	// +kubebuilder:validation:Pattern=`^https://.+`
 	RelayURL string `json:"relayURL"`
 }
 

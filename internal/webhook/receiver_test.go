@@ -196,22 +196,25 @@ func TestReceiver_HandleFrame(t *testing.T) {
 		}
 	})
 
-	t.Run("bad HMAC", func(t *testing.T) {
+	t.Run("HMAC is intentionally not verified (tunnel = trusted-relay)", func(t *testing.T) {
 		lookup := &fakeLookup{app: &v1alpha1.GitHubApp{}, secret: secret}
 		feed := &fakeFeed{}
 		recv := newTestReceiver(lookup, feed)
 
+		// Deliberately bogus signature — smee.io reserialises the JSON body,
+		// so GitHub's signature would never match the bytes we see. Tunnel
+		// mode dispatches regardless; ServeHTTP still enforces HMAC.
 		headers := map[string]string{
 			"X-GitHub-Event":                       "push",
-			"X-GitHub-Delivery":                    "frame-bad-sig",
+			"X-GitHub-Delivery":                    "frame-tunnel-sig",
 			"X-Hub-Signature-256":                  "sha256=" + hex.EncodeToString(make([]byte, 32)),
 			"X-GitHub-Hook-Installation-Target-ID": "12345",
 		}
-		if err := recv.HandleFrame(context.Background(), headers, body); err == nil {
-			t.Fatal("expected error for bad HMAC, got nil")
+		if err := recv.HandleFrame(context.Background(), headers, body); err != nil {
+			t.Fatalf("expected nil error for tunnel frame, got %v", err)
 		}
-		if len(feed.pushes) != 0 {
-			t.Errorf("expected no dispatch on bad HMAC, got %d", len(feed.pushes))
+		if len(feed.pushes) != 1 {
+			t.Errorf("expected dispatch on tunnel frame, got %d", len(feed.pushes))
 		}
 	})
 
@@ -242,7 +245,7 @@ func TestReceiver_HandleFrame(t *testing.T) {
 		feed := &fakeFeed{}
 		recv := newTestReceiver(lookup, feed)
 
-		before := testutil.ToFloat64(EventsTotal.WithLabelValues("push", "true", ""))
+		before := testutil.ToFloat64(EventsTotal.WithLabelValues("push", "tunnel", ""))
 
 		headers := map[string]string{
 			"X-GitHub-Event":                       "push",
@@ -257,9 +260,9 @@ func TestReceiver_HandleFrame(t *testing.T) {
 			t.Fatalf("expected 1 dispatched push, got %d", len(feed.pushes))
 		}
 
-		after := testutil.ToFloat64(EventsTotal.WithLabelValues("push", "true", ""))
+		after := testutil.ToFloat64(EventsTotal.WithLabelValues("push", "tunnel", ""))
 		if after != before+1 {
-			t.Fatalf("EventsTotal push/true = %v, want %v", after, before+1)
+			t.Fatalf("EventsTotal push/tunnel = %v, want %v", after, before+1)
 		}
 	})
 }

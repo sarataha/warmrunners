@@ -52,8 +52,7 @@ step_up_cluster() {
 }
 
 install_arc() {
-  helm repo add actions-runner-controller https://actions-runner-controller.github.io/actions-runner-controller
-  helm repo update
+  # ARC's official charts are OCI-only; no `helm repo add` needed.
   helm install arc-controller -n arc-systems --create-namespace \
     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
   kubectl create ns arc-runners --dry-run=client -o yaml | kubectl apply -f -
@@ -74,10 +73,13 @@ apply_secrets() {
   kubectl -n "$NAMESPACE" create secret generic warmrunners-app-webhook \
     --from-file=secret="$WEBHOOK_SECRET_FILE" \
     --dry-run=client -o yaml | kubectl apply -f -
+  # gh-token in warmrunners-system for the WRP's demand poll (auth.secretRef).
+  kubectl -n "$NAMESPACE" create secret generic gh-token \
+    --from-literal=token="$LIVETEST_PAT" \
+    --dry-run=client -o yaml | kubectl apply -f -
 }
 
 apply_gha_and_wrp() {
-  local tunnel_wss="${SMEE_URL/https:/wss:}"
   cat <<YAML | kubectl apply -f -
 apiVersion: autoscaling.warmrunners.io/v1alpha1
 kind: GitHubApp
@@ -90,7 +92,7 @@ spec:
   ingress:
     mode: tunnel
     tunnel:
-      relayURL: $tunnel_wss
+      relayURL: $SMEE_URL
 ---
 apiVersion: autoscaling.warmrunners.io/v1alpha1
 kind: WarmRunnerPolicy
@@ -118,7 +120,7 @@ YAML
 
 trigger_workflow() {
   env -u GITHUB_TOKEN GITHUB_TOKEN="$LIVETEST_PAT" \
-    gh workflow run ci.yml -R "$LIVETEST_REPO"
+    gh workflow run load.yml -R "$LIVETEST_REPO" --ref main
 }
 
 wait_for_signal() {
@@ -133,7 +135,7 @@ wait_for_signal() {
 test_poll_fallback() {
   echo "breaking tunnel: patching GitHubApp to unreachable URL…"
   kubectl patch githubapp warmrunners-app --type=merge \
-    -p '{"spec":{"ingress":{"mode":"tunnel","tunnel":{"relayURL":"wss://smee.io/does-not-exist-000000"}}}}'
+    -p '{"spec":{"ingress":{"mode":"tunnel","tunnel":{"relayURL":"https://smee.io/does-not-exist-000000"}}}}'
   echo "waiting for lastEventSource to fall back to poll…"
   retry 120 5 "[[ \"\$(kubectl -n $NAMESPACE get wrp livetest -o jsonpath='{.status.lastEventSource}')\" == 'poll' ]]"
 }
@@ -144,6 +146,10 @@ test_expiry_drop() {
 }
 
 tear_down() {
+  if [[ "${KEEP_CLUSTER:-0}" == "1" ]]; then
+    echo "KEEP_CLUSTER=1 — leaving cluster $CLUSTER_NAME in place for debugging"
+    return 0
+  fi
   echo "tearing down…"
   kind delete cluster --name "$CLUSTER_NAME" || true
   # Revert any config/manager/kustomization.yaml mutation from `make deploy`

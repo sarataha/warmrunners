@@ -3,13 +3,13 @@ package webhook
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/coder/websocket"
 	"github.com/go-logr/logr"
 )
 
@@ -63,35 +63,40 @@ func waitFor(t *testing.T, cond func() bool, timeout time.Duration) {
 	}
 }
 
-// sendFrame encodes a relay frame and writes it as a text message on conn.
-func sendFrame(ctx context.Context, conn *websocket.Conn, event, delivery, sig, targetID string, body json.RawMessage) error {
-	data, err := json.Marshal(map[string]any{
+// sseFrame renders one SSE `event:`/`data:` message for the given webhook
+// payload. Terminating blank line included.
+func sseFrame(event, delivery, sig, targetID string, body json.RawMessage) string {
+	payload, _ := json.Marshal(map[string]any{
 		"x-github-event":                       event,
 		"x-github-delivery":                    delivery,
 		"x-hub-signature-256":                  sig,
 		"x-github-hook-installation-target-id": targetID,
 		"body":                                 body,
 	})
-	if err != nil {
-		return err
+	return fmt.Sprintf("event: message\ndata: %s\n\n", payload)
+}
+
+// writeAndFlush writes s to w and forces the HTTP response buffer out so
+// the SSE client sees the bytes immediately.
+func writeAndFlush(w http.ResponseWriter, s string) {
+	_, _ = fmt.Fprint(w, s)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
-	return conn.Write(ctx, websocket.MessageText, data)
 }
 
 func TestTunnelClient_HandleFrameCalled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		writeAndFlush(w, sseFrame("push", "d1", "sig1", "123", json.RawMessage(`{"k":"v"}`)))
+		// Keep the stream open briefly so the client can read the frame.
+		select {
+		case <-r.Context().Done():
+		case <-time.After(200 * time.Millisecond):
 		}
-		defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
-		_ = sendFrame(r.Context(), conn, "push", "d1", "sig1", "123", json.RawMessage(`{"k":"v"}`))
-		// Keep the connection open briefly so the client can read the frame.
-		time.Sleep(200 * time.Millisecond)
 	}))
 	defer srv.Close()
-
-	wsURL := "ws" + srv.URL[len("http"):]
 
 	handler := &fakeHandler{}
 	tc := NewTunnelClient(handler, logr.Discard())
@@ -99,7 +104,7 @@ func TestTunnelClient_HandleFrameCalled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go func() { _ = tc.Start(ctx, "app1", wsURL) }()
+	go func() { _ = tc.Start(ctx, "app1", srv.URL) }()
 
 	waitFor(t, func() bool { return handler.count() >= 1 }, time.Second)
 
@@ -126,33 +131,31 @@ func TestTunnelClient_ReconnectsOnServerClose(t *testing.T) {
 	connCount := 0
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
-		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+
 		mu.Lock()
 		connCount++
 		n := connCount
 		mu.Unlock()
 
 		if n == 1 {
-			// First connection: send one frame, then close abruptly to force
-			// a reconnect.
-			_ = sendFrame(r.Context(), conn, "push", "d1", "sig1", "123", json.RawMessage(`{"n":1}`))
+			// First connection: send one frame, then return to force a
+			// reconnect.
+			writeAndFlush(w, sseFrame("push", "d1", "sig1", "123", json.RawMessage(`{"n":1}`)))
 			time.Sleep(20 * time.Millisecond)
-			_ = conn.Close(websocket.StatusNormalClosure, "bye")
 			return
 		}
 
 		// Second (reconnected) connection: send a second frame and hold
 		// briefly.
-		defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
-		_ = sendFrame(r.Context(), conn, "push", "d2", "sig2", "123", json.RawMessage(`{"n":2}`))
-		time.Sleep(200 * time.Millisecond)
+		writeAndFlush(w, sseFrame("push", "d2", "sig2", "123", json.RawMessage(`{"n":2}`)))
+		select {
+		case <-r.Context().Done():
+		case <-time.After(200 * time.Millisecond):
+		}
 	}))
 	defer srv.Close()
-
-	wsURL := "ws" + srv.URL[len("http"):]
 
 	handler := &fakeHandler{}
 	tc := NewTunnelClient(handler, logr.Discard()).(*tunnelClient)
@@ -161,7 +164,7 @@ func TestTunnelClient_ReconnectsOnServerClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go func() { _ = tc.Start(ctx, "app1", wsURL) }()
+	go func() { _ = tc.Start(ctx, "app1", srv.URL) }()
 
 	waitFor(t, func() bool { return handler.count() >= 2 }, 2*time.Second)
 
@@ -175,16 +178,14 @@ func TestTunnelClient_ReconnectsOnServerClose(t *testing.T) {
 
 func TestTunnelClient_ConnectedTransitions(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
 		}
-		defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 		<-r.Context().Done()
 	}))
 	defer srv.Close()
-
-	wsURL := "ws" + srv.URL[len("http"):]
 
 	handler := &fakeHandler{}
 	tc := NewTunnelClient(handler, logr.Discard())
@@ -196,7 +197,7 @@ func TestTunnelClient_ConnectedTransitions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go func() { _ = tc.Start(ctx, "app1", wsURL) }()
+	go func() { _ = tc.Start(ctx, "app1", srv.URL) }()
 
 	waitFor(t, tc.Connected, time.Second)
 
@@ -218,8 +219,8 @@ func TestTunnelRegistry_EnsureIdempotent(t *testing.T) {
 	reg := NewTunnelRegistry(factory)
 	defer reg.Stop("app1")
 
-	c1 := reg.Ensure("app1", "wss://ignored")
-	c2 := reg.Ensure("app1", "wss://ignored")
+	c1 := reg.Ensure("app1", "https://ignored")
+	c2 := reg.Ensure("app1", "https://ignored")
 
 	if c1 != c2 {
 		t.Errorf("expected same instance from repeated Ensure with same URL")
@@ -244,8 +245,8 @@ func TestTunnelRegistry_EnsureReplacesOnURLChange(t *testing.T) {
 	reg := NewTunnelRegistry(factory)
 	defer reg.Stop("app1")
 
-	c1 := reg.Ensure("app1", "wss://a")
-	c2 := reg.Ensure("app1", "wss://b")
+	c1 := reg.Ensure("app1", "https://a")
+	c2 := reg.Ensure("app1", "https://b")
 
 	if c1 == c2 {
 		t.Errorf("expected different instance after URL change")
@@ -261,7 +262,7 @@ func TestTunnelRegistry_Stop(t *testing.T) {
 	factory := func() TunnelClient { return &noopTunnelClient{} }
 
 	reg := NewTunnelRegistry(factory)
-	reg.Ensure("app1", "wss://a")
+	reg.Ensure("app1", "https://a")
 	reg.Stop("app1")
 
 	if got := reg.Get("app1"); got != nil {
