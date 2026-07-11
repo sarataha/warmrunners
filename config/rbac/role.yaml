@@ -32,7 +32,15 @@ rules:
 - apiGroups:
   - autoscaling.warmrunners.io
   resources:
+  - githubapps/finalizers
+  - warmrunnerpolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - autoscaling.warmrunners.io
+  resources:
   - githubapps/status
+  - warmrunnerpolicies/status
   verbs:
   - get
   - patch
@@ -48,20 +56,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - autoscaling.warmrunners.io
-  resources:
-  - warmrunnerpolicies/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - autoscaling.warmrunners.io
-  resources:
-  - warmrunnerpolicies/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - garm-operator.mercedes-benz.com
   resources:

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sarataha/warmrunners/api/v1alpha1"
 )
 
@@ -173,6 +174,94 @@ func TestReceiver_UnknownInstallationTarget(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", w.Code)
 	}
+}
+
+func TestReceiver_HandleFrame(t *testing.T) {
+	secret := []byte("s3cr3t")
+	body := []byte(`{"ref":"refs/heads/main","after":"deadbeef","repository":{"full_name":"acme/widgets"}}`)
+
+	t.Run("unknown target", func(t *testing.T) {
+		lookup := &fakeLookup{err: errors.New("app not found")}
+		feed := &fakeFeed{}
+		recv := newTestReceiver(lookup, feed)
+
+		headers := map[string]string{
+			"X-GitHub-Event":                       "push",
+			"X-GitHub-Delivery":                    "frame-unknown",
+			"X-Hub-Signature-256":                  sign(secret, body),
+			"X-GitHub-Hook-Installation-Target-ID": "99999",
+		}
+		if err := recv.HandleFrame(context.Background(), headers, body); err == nil {
+			t.Fatal("expected error for unknown installation target, got nil")
+		}
+	})
+
+	t.Run("bad HMAC", func(t *testing.T) {
+		lookup := &fakeLookup{app: &v1alpha1.GitHubApp{}, secret: secret}
+		feed := &fakeFeed{}
+		recv := newTestReceiver(lookup, feed)
+
+		headers := map[string]string{
+			"X-GitHub-Event":                       "push",
+			"X-GitHub-Delivery":                    "frame-bad-sig",
+			"X-Hub-Signature-256":                  "sha256=" + hex.EncodeToString(make([]byte, 32)),
+			"X-GitHub-Hook-Installation-Target-ID": "12345",
+		}
+		if err := recv.HandleFrame(context.Background(), headers, body); err == nil {
+			t.Fatal("expected error for bad HMAC, got nil")
+		}
+		if len(feed.pushes) != 0 {
+			t.Errorf("expected no dispatch on bad HMAC, got %d", len(feed.pushes))
+		}
+	})
+
+	t.Run("replay is idempotent", func(t *testing.T) {
+		lookup := &fakeLookup{app: &v1alpha1.GitHubApp{}, secret: secret}
+		feed := &fakeFeed{}
+		recv := newTestReceiver(lookup, feed)
+
+		headers := map[string]string{
+			"X-GitHub-Event":                       "push",
+			"X-GitHub-Delivery":                    "frame-replay",
+			"X-Hub-Signature-256":                  sign(secret, body),
+			"X-GitHub-Hook-Installation-Target-ID": "12345",
+		}
+		if err := recv.HandleFrame(context.Background(), headers, body); err != nil {
+			t.Fatalf("first HandleFrame: unexpected error: %v", err)
+		}
+		if err := recv.HandleFrame(context.Background(), headers, body); err != nil {
+			t.Fatalf("replayed HandleFrame: expected nil error, got: %v", err)
+		}
+		if len(feed.pushes) != 1 {
+			t.Fatalf("expected 1 dispatch total (replay is idempotent), got %d", len(feed.pushes))
+		}
+	})
+
+	t.Run("good frame dispatches and increments EventsTotal", func(t *testing.T) {
+		lookup := &fakeLookup{app: &v1alpha1.GitHubApp{}, secret: secret}
+		feed := &fakeFeed{}
+		recv := newTestReceiver(lookup, feed)
+
+		before := testutil.ToFloat64(EventsTotal.WithLabelValues("push", "true", ""))
+
+		headers := map[string]string{
+			"X-GitHub-Event":                       "push",
+			"X-GitHub-Delivery":                    "frame-good",
+			"X-Hub-Signature-256":                  sign(secret, body),
+			"X-GitHub-Hook-Installation-Target-ID": "12345",
+		}
+		if err := recv.HandleFrame(context.Background(), headers, body); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(feed.pushes) != 1 {
+			t.Fatalf("expected 1 dispatched push, got %d", len(feed.pushes))
+		}
+
+		after := testutil.ToFloat64(EventsTotal.WithLabelValues("push", "true", ""))
+		if after != before+1 {
+			t.Fatalf("EventsTotal push/true = %v, want %v", after, before+1)
+		}
+	})
 }
 
 func TestReceiver_NonPostMethod(t *testing.T) {

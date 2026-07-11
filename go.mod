@@ -13,6 +13,7 @@ require (
 	k8s.io/api v0.34.0
 	k8s.io/apimachinery v0.34.0
 	k8s.io/client-go v0.34.0
+	nhooyr.io/websocket v1.8.17
 	sigs.k8s.io/controller-runtime v0.22.1
 	sigs.k8s.io/yaml v1.6.0
 )
