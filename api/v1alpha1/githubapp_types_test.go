@@ -2,6 +2,8 @@ package v1alpha1
 
 import "testing"
 
+const testSecretKey = "secret"
+
 // TestGitHubAppTypes_DefaultsAndValidation exercises the GitHubApp CRD's
 // defaulting and validation contract at the Go-struct level: the CRD schema
 // markers (kubebuilder:default, Minimum, Required) are enforced by the API
@@ -40,7 +42,7 @@ func TestGitHubAppTypes_DefaultsAndValidation(t *testing.T) {
 				},
 				WebhookSecretRef: SecretKeyRef{
 					Name: "wh",
-					Key:  "secret",
+					Key:  testSecretKey,
 				},
 				Ingress: GitHubAppIngress{
 					Mode: IngressModeIngress,
@@ -54,7 +56,7 @@ func TestGitHubAppTypes_DefaultsAndValidation(t *testing.T) {
 	})
 
 	t.Run("webhookSecretRef.name required", func(t *testing.T) {
-		ref := SecretKeyRef{Key: "secret"}
+		ref := SecretKeyRef{Key: testSecretKey}
 		if ref.Name != "" {
 			t.Fatalf("expected zero-value Name to be empty, got %q", ref.Name)
 		}
@@ -73,7 +75,7 @@ func TestGitHubAppTypes_DefaultsAndValidation(t *testing.T) {
 				},
 				WebhookSecretRef: SecretKeyRef{
 					Name: "wh",
-					Key:  "secret",
+					Key:  testSecretKey,
 				},
 				Ingress: GitHubAppIngress{
 					Mode:     IngressModeTunnel,

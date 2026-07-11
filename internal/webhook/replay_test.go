@@ -64,12 +64,12 @@ func TestReplayGuard_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
-		go func(n int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < 10; j++ {
 				g.Seen("delivery-concurrent")
 			}
-		}(i)
+		}()
 	}
 	wg.Wait()
 }

@@ -28,10 +28,10 @@ func (f *fakeLookup) Resolve(ctx context.Context, targetID string) (*v1alpha1.Gi
 	return f.app, f.secret, nil
 }
 
-func newTestReceiver(lookup AppLookup, feed *fakeFeed) (*Receiver, *ReplayGuard) {
+func newTestReceiver(lookup AppLookup, feed *fakeFeed) *Receiver {
 	guard := NewReplayGuard(1024, time.Hour)
 	disp := NewDispatcher(feed, nil, logr.Discard())
-	return NewReceiver(lookup, guard, disp, logr.Discard()), guard
+	return NewReceiver(lookup, guard, disp, logr.Discard())
 }
 
 func TestReceiver_HappyPath(t *testing.T) {
@@ -39,7 +39,7 @@ func TestReceiver_HappyPath(t *testing.T) {
 	body := []byte(`{"ref":"refs/heads/main","after":"deadbeef","repository":{"full_name":"acme/widgets"}}`)
 	lookup := &fakeLookup{app: &v1alpha1.GitHubApp{}, secret: secret}
 	feed := &fakeFeed{}
-	recv, _ := newTestReceiver(lookup, feed)
+	recv := newTestReceiver(lookup, feed)
 
 	req := httptest.NewRequest(http.MethodPost, "/github/webhook", bytes.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "push")
@@ -63,7 +63,7 @@ func TestReceiver_MissingHeaders(t *testing.T) {
 	body := []byte(`{}`)
 	lookup := &fakeLookup{app: &v1alpha1.GitHubApp{}, secret: secret}
 	feed := &fakeFeed{}
-	recv, _ := newTestReceiver(lookup, feed)
+	recv := newTestReceiver(lookup, feed)
 
 	req := httptest.NewRequest(http.MethodPost, "/github/webhook", bytes.NewReader(body))
 	// Deliberately omit all GitHub headers.
@@ -80,7 +80,7 @@ func TestReceiver_InvalidSignature(t *testing.T) {
 	body := []byte(`{"ref":"refs/heads/main","after":"deadbeef","repository":{"full_name":"acme/widgets"}}`)
 	lookup := &fakeLookup{app: &v1alpha1.GitHubApp{}, secret: secret}
 	feed := &fakeFeed{}
-	recv, _ := newTestReceiver(lookup, feed)
+	recv := newTestReceiver(lookup, feed)
 
 	req := httptest.NewRequest(http.MethodPost, "/github/webhook", bytes.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "push")
@@ -104,7 +104,7 @@ func TestReceiver_BodyTooLarge(t *testing.T) {
 	body := bytes.Repeat([]byte("a"), (1<<20)+1)
 	lookup := &fakeLookup{app: &v1alpha1.GitHubApp{}, secret: secret}
 	feed := &fakeFeed{}
-	recv, _ := newTestReceiver(lookup, feed)
+	recv := newTestReceiver(lookup, feed)
 
 	req := httptest.NewRequest(http.MethodPost, "/github/webhook", bytes.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "push")
@@ -125,7 +125,7 @@ func TestReceiver_Replay(t *testing.T) {
 	body := []byte(`{"ref":"refs/heads/main","after":"deadbeef","repository":{"full_name":"acme/widgets"}}`)
 	lookup := &fakeLookup{app: &v1alpha1.GitHubApp{}, secret: secret}
 	feed := &fakeFeed{}
-	recv, _ := newTestReceiver(lookup, feed)
+	recv := newTestReceiver(lookup, feed)
 
 	makeReq := func() *http.Request {
 		req := httptest.NewRequest(http.MethodPost, "/github/webhook", bytes.NewReader(body))
@@ -158,7 +158,7 @@ func TestReceiver_Replay(t *testing.T) {
 func TestReceiver_UnknownInstallationTarget(t *testing.T) {
 	lookup := &fakeLookup{err: errors.New("app not found")}
 	feed := &fakeFeed{}
-	recv, _ := newTestReceiver(lookup, feed)
+	recv := newTestReceiver(lookup, feed)
 
 	body := []byte(`{}`)
 	req := httptest.NewRequest(http.MethodPost, "/github/webhook", bytes.NewReader(body))
@@ -178,7 +178,7 @@ func TestReceiver_UnknownInstallationTarget(t *testing.T) {
 func TestReceiver_NonPostMethod(t *testing.T) {
 	lookup := &fakeLookup{app: &v1alpha1.GitHubApp{}, secret: []byte("s3cr3t")}
 	feed := &fakeFeed{}
-	recv, _ := newTestReceiver(lookup, feed)
+	recv := newTestReceiver(lookup, feed)
 
 	req := httptest.NewRequest(http.MethodGet, "/github/webhook", nil)
 	w := httptest.NewRecorder()
