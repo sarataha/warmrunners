@@ -65,6 +65,14 @@ falls back to REST observations automatically.
 
 ## Setup — tunnel mode
 
+> **Dev/kind only.** Tunnel mode subscribes to a smee.io-compatible SSE relay,
+> which decodes and re-serialises the webhook payload. That breaks the HMAC
+> signature GitHub computed over the original bytes, so tunnel mode
+> **does not verify HMAC** — it trusts that anyone who reaches the relay's
+> unguessable channel URL is authorised. Use ingress mode in production.
+
+
+
 For kind, single-node clusters, or air-gapped clusters that still allow
 outbound traffic — no Ingress required.
 
@@ -80,7 +88,7 @@ outbound traffic — no Ingress required.
      ingress:
        mode: tunnel
        tunnel:
-         relayURL: wss://smee.io/abcdef123
+         relayURL: https://smee.io/abcdef123
    ```
 
 5. **Important**: the smee URL *is* the bearer secret — anyone who knows it
@@ -104,8 +112,8 @@ spec:
   `webhook` within about a second.
 - `kubectl get wrp <name> -o jsonpath='{.status.activeUntil}'` is non-empty.
 - Metrics confirm the same thing:
-  `warmrunners_webhook_events_total{event="push",verified="true"}`
-  incremented, and
+  `warmrunners_webhook_events_total{event="push",verified="true"}` (ingress)
+  or `…,verified="tunnel"` (tunnel) incremented, and
   `warmrunners_active_window_seconds_remaining{repo="..."}` > 0.
 
 ## Poll fallback

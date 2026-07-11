@@ -112,21 +112,39 @@ func (r *Receiver) handle(ctx context.Context, eventType, deliveryID, sigHeader,
 }
 
 // HandleFrame runs a decoded relay frame (from a tunnel client) through the
-// same HMAC verify + replay guard + dispatch pipeline as ServeHTTP. It
-// satisfies FrameHandler. headers keys are the same GitHub webhook header
-// names used over HTTP (X-GitHub-Event, X-GitHub-Delivery,
-// X-Hub-Signature-256, X-GitHub-Hook-Installation-Target-ID).
+// replay guard + dispatch pipeline WITHOUT HMAC verification. Tunnel relays
+// (smee.io) reserialise the JSON body, breaking the signature GitHub computed
+// over its original bytes. Tunnel mode therefore trusts that anyone who
+// reaches the relay's unguessable channel URL is authorised — this is a
+// dev/kind path, not a production one. Ingress mode (ServeHTTP) still
+// enforces HMAC end-to-end.
+//
+// headers keys are the same GitHub webhook header names used over HTTP:
+// X-GitHub-Event, X-GitHub-Delivery, X-Hub-Signature-256 (recorded but not
+// verified), X-GitHub-Hook-Installation-Target-ID.
 func (r *Receiver) HandleFrame(ctx context.Context, headers map[string]string, body []byte) error {
 	eventType := headers["X-GitHub-Event"]
 	deliveryID := headers["X-GitHub-Delivery"]
-	sigHeader := headers["X-Hub-Signature-256"]
 	targetID := headers["X-GitHub-Hook-Installation-Target-ID"]
-	if eventType == "" || deliveryID == "" || sigHeader == "" || targetID == "" {
+	if eventType == "" || deliveryID == "" || targetID == "" {
 		return errors.New("webhook: malformed tunnel frame: missing required header")
 	}
 
-	_, err := r.handle(ctx, eventType, deliveryID, sigHeader, targetID, body, time.Now())
-	return err
+	if _, _, err := r.lookup.Resolve(ctx, targetID); err != nil {
+		return fmt.Errorf("webhook: unknown installation target: %w", err)
+	}
+
+	if r.guard.Seen(deliveryID) {
+		DeliveriesDropped.WithLabelValues("replay").Inc()
+		return nil
+	}
+
+	if err := r.disp.Handle(ctx, eventType, deliveryID, body); err != nil {
+		return fmt.Errorf("webhook: dispatch: %w", err)
+	}
+
+	EventsTotal.WithLabelValues(eventType, "tunnel", "").Inc()
+	return nil
 }
 
 // drop records a dropped-delivery metric and writes the response status.

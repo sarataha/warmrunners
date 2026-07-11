@@ -71,7 +71,10 @@ spec:
                   tunnel:
                     properties:
                       relayURL:
-                        pattern: ^wss://.+
+                        description: |-
+                          RelayURL is the smee.io-compatible SSE relay endpoint the tunnel
+                          client subscribes to. Must be an https:// URL.
+                        pattern: ^https://.+
                         type: string
                     required:
                     - relayURL
