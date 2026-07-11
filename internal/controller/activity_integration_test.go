@@ -274,6 +274,184 @@ func TestReconcile_ActivityLabelSets_TopNDeterministic(t *testing.T) {
 	}
 }
 
+// stubEventFeed is a minimal activity.EventFeed for reconciler tests. It
+// does not implement per-repo keying — a single (per, lastEvent) pair is
+// returned for any repo, which is sufficient since these tests only ever
+// reconcile one policy/repo at a time.
+type stubEventFeed struct {
+	per       map[string]int
+	lastEvent time.Time
+}
+
+func (s *stubEventFeed) RecordPush(_, _ string)         {}
+func (s *stubEventFeed) RecordJob(_ string, _ []string) {}
+func (s *stubEventFeed) Snapshot(_ string) (map[string]int, time.Time) {
+	return s.per, s.lastEvent
+}
+
+// reconcileOnceWithFeed builds a reconciler with the supplied EventFeed
+// (event-fed activity, v0.5.0) and Activity poll fallback, and runs one
+// Reconcile.
+func reconcileOnceWithFeed(t *testing.T, pol *v1alpha1.WarmRunnerPolicy, feed activity.EventFeed, poll activity.Activity) *v1alpha1.WarmRunnerPolicy {
+	t.Helper()
+	sch := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(sch)
+	arc := newARC(0)
+	cl := fake.NewClientBuilder().WithScheme(sch).WithObjects(arc, pol).WithStatusSubresource(pol).Build()
+
+	r := &WarmRunnerPolicyReconciler{
+		Client: cl, Scheme: sch,
+		Scheduler: scheduler.NewHeuristic(),
+		Demand:    stubDemand{},
+		Activity:  poll,
+		EventFeed: feed,
+	}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: pol.Name, Namespace: pol.Namespace}}); err != nil {
+		t.Fatal(err)
+	}
+	var got v1alpha1.WarmRunnerPolicy
+	_ = cl.Get(context.Background(), types.NamespacedName{Name: pol.Name, Namespace: pol.Namespace}, &got)
+	return &got
+}
+
+// 9. GitHubAppRef set + a fresh event feed → the feed is used directly; the
+// poll never runs. Status reflects the feed's contribution + "webhook".
+func TestReconciler_UsesEventFeedWhenAppRefSet(t *testing.T) {
+	pol := newPolicy()
+	pol.Name = "feed-fresh"
+	pol.Spec.GitHubAppRef = &v1alpha1.LocalObjectRef{Name: "app"}
+	pol.Spec.Floor.Max = 10
+	feed := &stubEventFeed{per: map[string]int{"self-hosted": 3}, lastEvent: time.Now()}
+
+	got := reconcileOnceWithFeed(t, pol, feed, nil)
+	if got.Status.ActivityFloor != 3 {
+		t.Fatalf("ActivityFloor = %d, want 3", got.Status.ActivityFloor)
+	}
+	if got.Status.LastEventSource != v1alpha1.LastEventSourceWebhook {
+		t.Fatalf("LastEventSource = %q, want %q", got.Status.LastEventSource, v1alpha1.LastEventSourceWebhook)
+	}
+	if got.Status.ActiveUntil == nil || !got.Status.ActiveUntil.After(time.Now()) {
+		t.Fatalf("ActiveUntil = %v, want non-nil and in the future", got.Status.ActiveUntil)
+	}
+}
+
+// 10. GitHubAppRef set but the feed's last event is older than the active
+// window → the reconciler falls back to the poll sampler.
+func TestReconciler_FallsBackToPollWhenFeedStale(t *testing.T) {
+	pol := newPolicy()
+	pol.Name = "feed-stale"
+	pol.Spec.GitHubAppRef = &v1alpha1.LocalObjectRef{Name: "app"}
+	pol.Spec.Floor.Max = 10
+	feed := &stubEventFeed{per: map[string]int{"self-hosted": 9}, lastEvent: time.Now().Add(-2 * defaultActiveWindow)}
+	pollStub := &stubActivity{sample: activity.Sample{PerLabelSet: map[string]int{"self-hosted": 5}}}
+
+	got := reconcileOnceWithFeed(t, pol, feed, pollStub)
+	if got.Status.LastEventSource != v1alpha1.LastEventSourcePoll {
+		t.Fatalf("LastEventSource = %q, want %q", got.Status.LastEventSource, v1alpha1.LastEventSourcePoll)
+	}
+	if got.Status.ActivityFloor != 5 {
+		t.Fatalf("ActivityFloor = %d, want 5 (from poll)", got.Status.ActivityFloor)
+	}
+}
+
+// 11. A later event on the feed pushes ActiveUntil forward on the next
+// reconcile.
+func TestReconciler_ActiveUntilExtendedOnEvent(t *testing.T) {
+	pol := newPolicy()
+	pol.Name = "feed-extend"
+	pol.Spec.GitHubAppRef = &v1alpha1.LocalObjectRef{Name: "app"}
+	pol.Spec.Floor.Max = 10
+	feed := &stubEventFeed{per: map[string]int{"self-hosted": 2}, lastEvent: time.Now()}
+
+	sch := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(sch)
+	arc := newARC(0)
+	cl := fake.NewClientBuilder().WithScheme(sch).WithObjects(arc, pol).WithStatusSubresource(pol).Build()
+	r := &WarmRunnerPolicyReconciler{
+		Client: cl, Scheme: sch,
+		Scheduler: scheduler.NewHeuristic(),
+		Demand:    stubDemand{},
+		EventFeed: feed,
+	}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: pol.Name, Namespace: pol.Namespace}}
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	var first v1alpha1.WarmRunnerPolicy
+	_ = cl.Get(context.Background(), req.NamespacedName, &first)
+	if first.Status.ActiveUntil == nil {
+		t.Fatal("ActiveUntil nil after first reconcile")
+	}
+	firstUntil := first.Status.ActiveUntil.Time
+
+	feed.lastEvent = time.Now().Add(5 * time.Second)
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	var second v1alpha1.WarmRunnerPolicy
+	_ = cl.Get(context.Background(), req.NamespacedName, &second)
+	if second.Status.ActiveUntil == nil || !second.Status.ActiveUntil.After(firstUntil) {
+		t.Fatalf("ActiveUntil did not extend: first=%v second=%v", firstUntil, second.Status.ActiveUntil)
+	}
+}
+
+// 12. Feed stale AND the poll fallback also finds nothing → the floor and
+// ActiveUntil both drop.
+func TestReconciler_ActiveUntilExpiryDropsFloor(t *testing.T) {
+	pol := newPolicy()
+	pol.Name = "feed-expired"
+	pol.Spec.GitHubAppRef = &v1alpha1.LocalObjectRef{Name: "app"}
+	pol.Spec.Floor.Max = 10
+	feed := &stubEventFeed{per: map[string]int{"self-hosted": 9}, lastEvent: time.Now().Add(-2 * defaultActiveWindow)}
+	pollStub := &stubActivity{sample: activity.Sample{PerLabelSet: map[string]int{}}}
+
+	got := reconcileOnceWithFeed(t, pol, feed, pollStub)
+	if got.Status.ActivityFloor != 0 {
+		t.Fatalf("ActivityFloor = %d, want 0", got.Status.ActivityFloor)
+	}
+	if got.Status.ActiveUntil != nil {
+		t.Fatalf("ActiveUntil = %v, want nil", got.Status.ActiveUntil)
+	}
+}
+
+// 13. LastEventSource reflects the origin of the signal that actually fired:
+// webhook when the feed is fresh, poll when the feed is stale but polling
+// found activity, and empty when no GitHubAppRef is configured at all (pure
+// pre-v0.5.0 behavior).
+func TestReconciler_LastEventSourceReflectsOrigin(t *testing.T) {
+	t.Run("webhook", func(t *testing.T) {
+		pol := newPolicy()
+		pol.Name = "origin-webhook"
+		pol.Spec.GitHubAppRef = &v1alpha1.LocalObjectRef{Name: "app"}
+		feed := &stubEventFeed{per: map[string]int{"self-hosted": 1}, lastEvent: time.Now()}
+		got := reconcileOnceWithFeed(t, pol, feed, nil)
+		if got.Status.LastEventSource != v1alpha1.LastEventSourceWebhook {
+			t.Fatalf("LastEventSource = %q, want %q", got.Status.LastEventSource, v1alpha1.LastEventSourceWebhook)
+		}
+	})
+	t.Run("poll", func(t *testing.T) {
+		pol := newPolicy()
+		pol.Name = "origin-poll"
+		pol.Spec.GitHubAppRef = &v1alpha1.LocalObjectRef{Name: "app"}
+		feed := &stubEventFeed{per: map[string]int{"self-hosted": 1}, lastEvent: time.Now().Add(-2 * defaultActiveWindow)}
+		pollStub := &stubActivity{sample: activity.Sample{PerLabelSet: map[string]int{"self-hosted": 4}}}
+		got := reconcileOnceWithFeed(t, pol, feed, pollStub)
+		if got.Status.LastEventSource != v1alpha1.LastEventSourcePoll {
+			t.Fatalf("LastEventSource = %q, want %q", got.Status.LastEventSource, v1alpha1.LastEventSourcePoll)
+		}
+	})
+	t.Run("no-app-ref", func(t *testing.T) {
+		pol := newPolicy()
+		pol.Name = "origin-none"
+		feed := &stubEventFeed{per: map[string]int{"self-hosted": 1}, lastEvent: time.Now()}
+		pollStub := &stubActivity{sample: activity.Sample{PerLabelSet: map[string]int{"self-hosted": 4}}}
+		got := reconcileOnceWithFeed(t, pol, feed, pollStub)
+		if got.Status.LastEventSource != "" {
+			t.Fatalf("LastEventSource = %q, want empty (no GitHubAppRef)", got.Status.LastEventSource)
+		}
+	})
+}
+
 // 8. Three signals together: schedule=2, predicted=4, activity=7 →
 // desiredFloor=7 (max wins, no signal additively stacks).
 func TestReconcile_AllThreeSignals_MaxWins(t *testing.T) {

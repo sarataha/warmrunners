@@ -43,6 +43,14 @@ type AuthRef struct {
 	SecretRef corev1.SecretKeySelector `json:"secretRef"`
 }
 
+// LocalObjectRef is a name-only reference to another Kubernetes object in
+// the same namespace (or, for cluster-scoped kinds like GitHubApp, in the
+// cluster).
+type LocalObjectRef struct {
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+}
+
 type ArcTarget struct {
 	RunnerSet RefNS `json:"runnerSet"`
 }
@@ -176,6 +184,21 @@ type WarmRunnerPolicySpec struct {
 	// +kubebuilder:default=false
 	// +optional
 	DryRun bool `json:"dryRun,omitempty"`
+
+	// GitHubAppRef selects the cluster-scoped GitHubApp CR that provides the
+	// receiver credentials for event-driven pre-warm. When set, the reconciler
+	// consumes the webhook-fed activity signal and treats REST polling as a
+	// fallback only.
+	// +optional
+	GitHubAppRef *LocalObjectRef `json:"githubAppRef,omitempty"`
+
+	// ActiveWindowSeconds is the duration the activity floor is held at the
+	// predicted fanout after the most recent push or workflow_job event.
+	// +kubebuilder:default=600
+	// +kubebuilder:validation:Minimum=60
+	// +kubebuilder:validation:Maximum=3600
+	// +optional
+	ActiveWindowSeconds *int32 `json:"activeWindowSeconds,omitempty"`
 }
 
 type WarmRunnerPolicyStatus struct {
@@ -206,6 +229,18 @@ type WarmRunnerPolicyStatus struct {
 	// +optional
 	DryRun bool `json:"dryRun,omitempty"`
 
+	// ActiveUntil is when the current activity window expires. Zero when no
+	// event has been recorded for this policy.
+	// +optional
+	ActiveUntil *metav1.Time `json:"activeUntil,omitempty"`
+
+	// LastEventSource records the origin of the most recent activity signal:
+	// `webhook` when it came from the GitHub App receiver, `poll` when it came
+	// from the REST fallback, empty when no event has been seen.
+	// +kubebuilder:validation:Enum=webhook;poll
+	// +optional
+	LastEventSource string `json:"lastEventSource,omitempty"`
+
 	// +patchMergeKey=type
 	// +patchStrategy=merge
 	// +listType=map
@@ -219,6 +254,12 @@ const (
 	DryRunConditionType           = "DryRun"
 	DryRunConditionReasonActive   = "Active"
 	DryRunConditionReasonInactive = "Inactive"
+)
+
+// LastEventSource values for WarmRunnerPolicyStatus.LastEventSource (v0.5.0).
+const (
+	LastEventSourceWebhook = "webhook"
+	LastEventSourcePoll    = "poll"
 )
 
 // +kubebuilder:object:root=true

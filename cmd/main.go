@@ -45,6 +45,7 @@ import (
 	"github.com/sarataha/warmrunners/internal/predictor"
 	"github.com/sarataha/warmrunners/internal/scheduler"
 	"github.com/sarataha/warmrunners/internal/version"
+	warmwebhook "github.com/sarataha/warmrunners/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -246,7 +247,7 @@ func main() {
 			// v0.3.0 (event cardinality is small but not operator-actionable).
 		})
 
-	if err := (&controller.WarmRunnerPolicyReconciler{
+	wrpReconciler := &controller.WarmRunnerPolicyReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		Scheduler:               scheduler.NewHeuristic(),
@@ -255,7 +256,42 @@ func main() {
 		GitHubHTTPTimeout:       githubHTTPTimeout,
 		Predictor:               predictorImpl,
 		Activity:                activityImpl,
+	}
+
+	// v0.5.0: event-driven pre-warm plumbing.
+	eventFeed := activity.NewInMemoryEventFeed(setupLog.WithName("event-feed"))
+
+	replayGuard := warmwebhook.NewReplayGuard(10_000, 24*time.Hour)
+
+	appLookup := warmwebhook.NewCachedAppLookup(mgr.GetClient(), setupLog.WithName("app-lookup"))
+
+	dispatcher := warmwebhook.NewDispatcher(eventFeed, nil /* parser wired later */, setupLog.WithName("dispatcher"))
+
+	receiver := warmwebhook.NewReceiver(appLookup, replayGuard, dispatcher, setupLog.WithName("webhook-receiver"))
+
+	if err := mgr.AddMetricsServerExtraHandler("/github/webhook", receiver); err != nil {
+		setupLog.Error(err, "unable to mount webhook receiver")
+		os.Exit(1)
+	}
+
+	tunnelReg := warmwebhook.NewTunnelRegistry(func() warmwebhook.TunnelClient {
+		return warmwebhook.NewTunnelClient(receiver, setupLog.WithName("tunnel"))
+	})
+
+	if err := (&controller.GitHubAppReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Tunnels: tunnelReg,
 	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create GitHubApp controller")
+		os.Exit(1)
+	}
+
+	// Wire the event feed into the WRP reconciler so it prefers webhook-fed
+	// activity over the REST poll when a GitHubApp CR is referenced.
+	wrpReconciler.EventFeed = eventFeed
+
+	if err := wrpReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WarmRunnerPolicy")
 		os.Exit(1)
 	}

@@ -48,6 +48,15 @@ import (
 // per-policy demand source in production (nil Demand).
 const githubBaseURL = "https://api.github.com"
 
+// defaultActiveWindow is the fallback duration the activity floor is held
+// when spec.activeWindowSeconds is unset. Matches the CRD default (600s).
+const defaultActiveWindow = 600 * time.Second
+
+// defaultPollIntervalWithApp is the fallback QueueRule.PollInterval when
+// a policy references a GitHubApp CR and pollInterval is zero. Longer
+// than the pre-v0.5 default because polling is now a fallback path.
+const defaultPollIntervalWithApp = 300 * time.Second
+
 // AdapterFactory resolves the Adapter + Ref for a target. It is a test seam:
 // when set on the reconciler it overrides production adapter selection.
 type AdapterFactory func(t v1alpha1.Target) (adapter.Adapter, adapter.Ref, bool)
@@ -77,6 +86,12 @@ type WarmRunnerPolicyReconciler struct {
 	// activity leg is skipped entirely (controller degrades to v0.2.x
 	// behavior). Interface so unit tests can inject a stub.
 	Activity activity.Activity
+	// EventFeed is the event-driven activity signal populated by the webhook
+	// receiver (v0.5.0). When set AND the policy references a GitHubApp CR,
+	// the reconciler prefers the feed over Activity's poll; poll becomes a
+	// fallback with a longer default interval. Interface so unit tests can
+	// inject a stub.
+	EventFeed activity.EventFeed
 
 	// prevPredictedLabels / prevActivityLabels track the label-set keys we
 	// emitted as warmrunners_{predicted,activity}_jobs_total samples for each
@@ -86,6 +101,18 @@ type WarmRunnerPolicyReconciler struct {
 	mu                  sync.Mutex
 	prevPredictedLabels map[string]map[string]struct{}
 	prevActivityLabels  map[string]map[string]struct{}
+}
+
+// effectivePollInterval returns the reconcile requeue interval, taking
+// v0.5.0's webhook-aware default into account.
+func (r *WarmRunnerPolicyReconciler) effectivePollInterval(pol *v1alpha1.WarmRunnerPolicy) time.Duration {
+	if pol.Spec.QueueRule.PollInterval.Duration > 0 {
+		return pol.Spec.QueueRule.PollInterval.Duration
+	}
+	if pol.Spec.GitHubAppRef != nil {
+		return defaultPollIntervalWithApp
+	}
+	return 0
 }
 
 func (r *WarmRunnerPolicyReconciler) adapterFor(t v1alpha1.Target) (adapter.Adapter, adapter.Ref, bool) {
@@ -206,7 +233,7 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			reconcileErrors.WithLabelValues(pol.Name, "status_update").Inc()
 			return ctrl.Result{}, statusErr
 		}
-		return ctrl.Result{RequeueAfter: pol.Spec.QueueRule.PollInterval.Duration}, nil
+		return ctrl.Result{RequeueAfter: r.effectivePollInterval(&pol)}, nil
 	}
 
 	snap, demErr := src.CurrentDemand(ctx, pol.Spec.GitHub.Owner, pol.Spec.GitHub.Repository, pol.Spec.GitHub.Labels)
@@ -354,7 +381,7 @@ func (r *WarmRunnerPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, statusErr
 	}
 
-	return ctrl.Result{RequeueAfter: pol.Spec.QueueRule.PollInterval.Duration}, nil
+	return ctrl.Result{RequeueAfter: r.effectivePollInterval(&pol)}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -502,6 +529,21 @@ func (r *WarmRunnerPolicyReconciler) computeActivity(
 	ctx context.Context,
 	pol *v1alpha1.WarmRunnerPolicy,
 ) (int32, []v1alpha1.PredictedLabelSet, map[string]int, error) {
+	// v0.5.0 event-fed path: preferred over the poll when a GitHubApp
+	// CR is referenced AND the receiver has recorded a recent event.
+	if pol.Spec.GitHubAppRef != nil && r.EventFeed != nil {
+		contrib, matched, per, source, activeUntil := r.computeActivityFromFeed(pol)
+		if source == v1alpha1.LastEventSourceWebhook {
+			// Feed is fresh — return without falling through to poll.
+			pol.Status.LastEventSource = source
+			pol.Status.ActiveUntil = activeUntil
+			return contrib, matched, per, nil
+		}
+		// Feed stale (no recent event) → fall through to poll below.
+		// Poll path will overwrite LastEventSource to "poll" if it
+		// records anything, or leave it "" (empty) otherwise.
+	}
+
 	if r.Activity == nil {
 		return 0, nil, nil, nil
 	}
@@ -555,10 +597,62 @@ func (r *WarmRunnerPolicyReconciler) computeActivity(
 	if len(matched) > activityTopN {
 		matched = matched[:activityTopN]
 	}
+	if pol.Spec.GitHubAppRef != nil && len(matched) > 0 {
+		pol.Status.LastEventSource = v1alpha1.LastEventSourcePoll
+		pol.Status.ActiveUntil = &metav1.Time{Time: time.Now().Add(window)}
+	}
 	if len(matched) == 0 {
 		matched = nil
 	}
 	return contrib, matched, sample.PerLabelSet, nil
+}
+
+// computeActivityFromFeed reads a Snapshot for the policy's repo and
+// returns the contribution + label sets, plus the resolved event source
+// and the derived activeUntil. When the feed has no events or its last
+// event is older than the active window, it returns zero contribution
+// and an empty source (indicating the caller should fall back to poll).
+func (r *WarmRunnerPolicyReconciler) computeActivityFromFeed(
+	pol *v1alpha1.WarmRunnerPolicy,
+) (int32, []v1alpha1.PredictedLabelSet, map[string]int, string, *metav1.Time) {
+	repo := pol.Spec.GitHub.Owner + "/" + pol.Spec.GitHub.Repository
+	perLabelSet, lastEvent := r.EventFeed.Snapshot(repo)
+	if lastEvent.IsZero() {
+		return 0, nil, nil, "", nil
+	}
+	window := defaultActiveWindow
+	if pol.Spec.ActiveWindowSeconds != nil && *pol.Spec.ActiveWindowSeconds > 0 {
+		window = time.Duration(*pol.Spec.ActiveWindowSeconds) * time.Second
+	}
+	if time.Since(lastEvent) > window {
+		return 0, nil, nil, "", nil
+	}
+	activeUntil := &metav1.Time{Time: lastEvent.Add(window)}
+
+	var contrib int32
+	matched := make([]v1alpha1.PredictedLabelSet, 0, len(perLabelSet))
+	want := pol.Spec.GitHub.Labels
+	for key, count := range perLabelSet {
+		labels := splitLabelSetKey(key)
+		if !labelsSuperset(labels, want) {
+			continue
+		}
+		contrib += int32(count)                                                                    //nolint:gosec // job counts are bounded
+		matched = append(matched, v1alpha1.PredictedLabelSet{Labels: labels, Count: int32(count)}) //nolint:gosec
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		if matched[i].Count != matched[j].Count {
+			return matched[i].Count > matched[j].Count
+		}
+		return predictor.LabelSetKey(matched[i].Labels) < predictor.LabelSetKey(matched[j].Labels)
+	})
+	if len(matched) > activityTopN {
+		matched = matched[:activityTopN]
+	}
+	if len(matched) == 0 {
+		matched = nil
+	}
+	return contrib, matched, perLabelSet, v1alpha1.LastEventSourceWebhook, activeUntil
 }
 
 // emitActivityJobsMetrics is the activity sibling of emitPredictedJobsMetrics:
