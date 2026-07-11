@@ -25,8 +25,9 @@ type TunnelClient interface {
 	// Start dials relayURL and delivers each event to the handler until
 	// ctx is cancelled. Auto-reconnects with exponential backoff (500ms →
 	// 30s cap, full jitter). Returns nil on ctx.Done(), error on
-	// unrecoverable auth failures.
-	Start(ctx context.Context, relayURL string) error
+	// unrecoverable auth failures. name identifies the owning GitHubApp CR,
+	// used to label the warmrunners_tunnel_reconnects_total counter.
+	Start(ctx context.Context, name, relayURL string) error
 	// Connected reports the last-known connection state.
 	Connected() bool
 }
@@ -94,7 +95,7 @@ func (c *tunnelClient) cap() time.Duration {
 	return maxBackoffCap
 }
 
-func (c *tunnelClient) Start(ctx context.Context, relayURL string) error {
+func (c *tunnelClient) Start(ctx context.Context, name, relayURL string) error {
 	backoff := initialBackoff
 
 	for {
@@ -107,6 +108,7 @@ func (c *tunnelClient) Start(ctx context.Context, relayURL string) error {
 
 		conn, _, err := websocket.Dial(ctx, relayURL, nil)
 		if err != nil {
+			TunnelReconnects.WithLabelValues(name, "failure").Inc()
 			if ctx.Err() != nil {
 				c.setConnected(false)
 				return nil
@@ -122,6 +124,7 @@ func (c *tunnelClient) Start(ctx context.Context, relayURL string) error {
 			backoff = minDuration(backoff*2, c.cap())
 			continue
 		}
+		TunnelReconnects.WithLabelValues(name, "success").Inc()
 
 		backoff = initialBackoff
 		c.setConnected(true)
@@ -221,7 +224,7 @@ func (r *TunnelRegistry) startLocked(name, relayURL string) TunnelClient {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = tc.Start(ctx, relayURL)
+		_ = tc.Start(ctx, name, relayURL)
 	}()
 	r.entries[name] = &tunnelEntry{client: tc, url: relayURL, cancel: cancel, done: done}
 	return tc

@@ -6,6 +6,35 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-08
+
+### Added
+- **Event-driven pre-warm**: new `GitHubApp` CRD (cluster-scoped) + a webhook
+  receiver mounted at `/github/webhook` on the metrics server. When a policy
+  references a `GitHubApp` via `spec.githubAppRef`, `push` and `workflow_job`
+  events feed the activity signal within ~1s of arrival, instead of waiting
+  for the next REST poll. HMAC-SHA256 verification, LRU replay guard
+  (10 000 IDs / 24h), 1 MiB body cap.
+- **Tunnel mode**: `GitHubApp.spec.ingress.mode: tunnel` opens an outbound
+  WebSocket to a smee.io-compatible relay. Zero-ingress path for kind, laptops,
+  and single-node clusters. Auto-reconnect with exponential backoff (500ms →
+  30s cap, full jitter).
+- **`WarmRunnerPolicy` fields**: `spec.githubAppRef`, `spec.activeWindowSeconds`
+  (default 600, range 60–3600). Status: `activeUntil`, `lastEventSource`
+  (`webhook`/`poll`).
+- **Metrics**: `warmrunners_webhook_events_total`, `warmrunners_webhook_lag_seconds`,
+  `warmrunners_webhook_deliveries_dropped_total`, `warmrunners_tunnel_connected`,
+  `warmrunners_tunnel_reconnects_total`, `warmrunners_active_window_expiries_total`,
+  `warmrunners_active_window_seconds_remaining`.
+- `docs/webhook.md` covers ingress + tunnel setup, verification, poll fallback,
+  and a troubleshooting matrix keyed on the dropped-events reason label.
+
+### Changed
+- When `spec.githubAppRef` is set, the default `queueRule.pollInterval` becomes
+  300s (from 30s pre-v0.5). Poll continues as a safety net for webhook outages.
+- REST polling code path unchanged for policies with no `githubAppRef`; existing
+  v0.4 policies keep their prior behavior.
+
 ## [0.4.0] - 2026-06-17
 
 ### Added
@@ -160,7 +189,8 @@ All notable changes to this project are documented here. Format follows
 - Helm chart, published to GHCR as an OCI artifact.
 - Multi-arch container image (linux/amd64, linux/arm64) on GHCR.
 
-[Unreleased]: https://github.com/sarataha/warmrunners/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/sarataha/warmrunners/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/sarataha/warmrunners/compare/v0.4.0...v0.5.0
 [0.3.0]: https://github.com/sarataha/warmrunners/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/sarataha/warmrunners/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sarataha/warmrunners/compare/v0.1.1...v0.2.0

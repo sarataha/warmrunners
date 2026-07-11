@@ -20,6 +20,11 @@ signals; the strongest wins.
 * **Predictor**: reads each active `workflow_run`'s YAML at `head_sha` and pre-warms downstream pools while upstream jobs are still running. The only GHA autoscaler that does this; reactive ones see `needs:`-blocked jobs only after upstream completes.
 * **Activity**: while the repo has non-bot CI activity in the last 15 min, the floor matches the matrix fanout of the triggered workflows. Quiet repo, floor drops to 0.
 
+The activity signal is fed by REST polling by default. Point a policy at a
+`GitHubApp` CR to switch it to a webhook receiver — floor bumps within ~1s of
+push, instead of waiting for the next poll. See
+[`docs/webhook.md`](docs/webhook.md).
+
 Decreases are rate-limited by a cooldown. The controller never deletes runners.
 
 See [`examples/`](examples/) for full policies.

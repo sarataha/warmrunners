@@ -101,6 +101,10 @@ type WarmRunnerPolicyReconciler struct {
 	mu                  sync.Mutex
 	prevPredictedLabels map[string]map[string]struct{}
 	prevActivityLabels  map[string]map[string]struct{}
+
+	// prevActiveUntil tracks the last-seen ActiveUntil per policy so we can
+	// detect window expiries and emit the counter once per transition.
+	prevActiveUntil map[string]*time.Time
 }
 
 // effectivePollInterval returns the reconcile requeue interval, taking
@@ -529,6 +533,8 @@ func (r *WarmRunnerPolicyReconciler) computeActivity(
 	ctx context.Context,
 	pol *v1alpha1.WarmRunnerPolicy,
 ) (int32, []v1alpha1.PredictedLabelSet, map[string]int, error) {
+	defer r.emitActiveWindowMetrics(pol)
+
 	// v0.5.0 event-fed path: preferred over the poll when a GitHubApp
 	// CR is referenced AND the receiver has recorded a recent event.
 	if pol.Spec.GitHubAppRef != nil && r.EventFeed != nil {
@@ -653,6 +659,38 @@ func (r *WarmRunnerPolicyReconciler) computeActivityFromFeed(
 		matched = nil
 	}
 	return contrib, matched, perLabelSet, v1alpha1.LastEventSourceWebhook, activeUntil
+}
+
+// emitActiveWindowMetrics updates warmrunners_active_window_seconds_remaining
+// and warmrunners_active_window_expiries_total for pol's repo, based on
+// pol.Status.ActiveUntil as left by computeActivityFromFeed / the poll
+// fallback. Detects the transition from "was active" to "now expired" via
+// r.prevActiveUntil, keyed by policy name, and increments the expiry counter
+// exactly once per transition.
+func (r *WarmRunnerPolicyReconciler) emitActiveWindowMetrics(pol *v1alpha1.WarmRunnerPolicy) {
+	repo := pol.Spec.GitHub.Owner + "/" + pol.Spec.GitHub.Repository
+	now := time.Now()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.prevActiveUntil == nil {
+		r.prevActiveUntil = make(map[string]*time.Time)
+	}
+	prev := r.prevActiveUntil[pol.Name]
+
+	cur := pol.Status.ActiveUntil
+	if cur != nil && cur.After(now) {
+		activeWindowRemainingGauge.WithLabelValues(repo).Set(time.Until(cur.Time).Seconds())
+		t := cur.Time
+		r.prevActiveUntil[pol.Name] = &t
+		return
+	}
+
+	if prev != nil {
+		activeWindowExpiries.WithLabelValues(repo).Inc()
+		activeWindowRemainingGauge.WithLabelValues(repo).Set(0)
+	}
+	r.prevActiveUntil[pol.Name] = nil
 }
 
 // emitActivityJobsMetrics is the activity sibling of emitPredictedJobsMetrics:

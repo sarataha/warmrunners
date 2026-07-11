@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/sarataha/warmrunners/api/v1alpha1"
 	"github.com/sarataha/warmrunners/internal/scheduler"
@@ -124,5 +125,26 @@ func TestReconcile_PollerError_IncrementsDemandSourceCounter(t *testing.T) {
 
 	if got := counterValue(t, policyName, "demand_source") - before; got != 1 {
 		t.Fatalf("demand_source counter delta = %v, want 1", got)
+	}
+}
+
+func TestMetrics_ActiveWindowGaugePerRepo(t *testing.T) {
+	activeWindowRemainingGauge.WithLabelValues("owner/repo-a").Set(42)
+	activeWindowRemainingGauge.WithLabelValues("owner/repo-b").Set(7)
+
+	if got := testutil.ToFloat64(activeWindowRemainingGauge.WithLabelValues("owner/repo-a")); got != 42 {
+		t.Fatalf("repo-a gauge = %v, want 42", got)
+	}
+	if got := testutil.ToFloat64(activeWindowRemainingGauge.WithLabelValues("owner/repo-b")); got != 7 {
+		t.Fatalf("repo-b gauge = %v, want 7", got)
+	}
+}
+
+func TestMetrics_ActiveWindowExpiries(t *testing.T) {
+	before := testutil.ToFloat64(activeWindowExpiries.WithLabelValues("owner/repo-expiry"))
+	activeWindowExpiries.WithLabelValues("owner/repo-expiry").Inc()
+
+	if got := testutil.ToFloat64(activeWindowExpiries.WithLabelValues("owner/repo-expiry")) - before; got != 1 {
+		t.Fatalf("active window expiries delta = %v, want 1", got)
 	}
 }

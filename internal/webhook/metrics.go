@@ -29,4 +29,18 @@ var (
 		Name: "warmrunners_webhook_deliveries_dropped_total",
 		Help: "Webhook deliveries dropped before dispatch, by reason.",
 	}, []string{"reason"})
+
+	// TunnelConnected reports whether the outbound tunnel client is
+	// currently connected to the relay, 1 or 0, per GitHubApp.
+	TunnelConnected = promauto.With(metrics.Registry).NewGaugeVec(prometheus.GaugeOpts{
+		Name: "warmrunners_tunnel_connected",
+		Help: "1 when the outbound tunnel client is connected to the relay, 0 otherwise.",
+	}, []string{"app"})
+
+	// TunnelReconnects counts tunnel reconnect attempts by outcome:
+	// success (dial returned nil) or failure (dial returned error).
+	TunnelReconnects = promauto.With(metrics.Registry).NewCounterVec(prometheus.CounterOpts{
+		Name: "warmrunners_tunnel_reconnects_total",
+		Help: "Tunnel reconnect attempts by outcome.",
+	}, []string{"app", "outcome"})
 )
