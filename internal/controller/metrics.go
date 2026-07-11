@@ -2,6 +2,7 @@ package controller
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sarataha/warmrunners/internal/version"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
@@ -93,6 +94,20 @@ var (
 		prometheus.CounterOpts{Name: "warmrunners_dry_run_skipped_patches_total", Help: "Backend patches skipped because spec.dryRun was true."},
 		[]string{"policy"},
 	)
+
+	// activeWindowExpiries counts the number of times a repo's active window
+	// expired and the activity floor dropped to zero (v0.5.0).
+	activeWindowExpiries = promauto.With(metricsserver.Registry).NewCounterVec(prometheus.CounterOpts{
+		Name: "warmrunners_active_window_expiries_total",
+		Help: "Number of times a repo's active window expired and the activity floor dropped to zero.",
+	}, []string{"repo"})
+
+	// activeWindowRemainingGauge reports the seconds remaining before the
+	// active window expires for a repo (v0.5.0).
+	activeWindowRemainingGauge = promauto.With(metricsserver.Registry).NewGaugeVec(prometheus.GaugeOpts{
+		Name: "warmrunners_active_window_seconds_remaining",
+		Help: "Seconds remaining before the active window expires for a repo.",
+	}, []string{"repo"})
 )
 
 func init() {

@@ -99,7 +99,7 @@ func TestTunnelClient_HandleFrameCalled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go func() { _ = tc.Start(ctx, wsURL) }()
+	go func() { _ = tc.Start(ctx, "app1", wsURL) }()
 
 	waitFor(t, func() bool { return handler.count() >= 1 }, time.Second)
 
@@ -161,7 +161,7 @@ func TestTunnelClient_ReconnectsOnServerClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go func() { _ = tc.Start(ctx, wsURL) }()
+	go func() { _ = tc.Start(ctx, "app1", wsURL) }()
 
 	waitFor(t, func() bool { return handler.count() >= 2 }, 2*time.Second)
 
@@ -196,7 +196,7 @@ func TestTunnelClient_ConnectedTransitions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go func() { _ = tc.Start(ctx, wsURL) }()
+	go func() { _ = tc.Start(ctx, "app1", wsURL) }()
 
 	waitFor(t, tc.Connected, time.Second)
 
@@ -276,7 +276,7 @@ type noopTunnelClient struct {
 	connected bool
 }
 
-func (n *noopTunnelClient) Start(ctx context.Context, _ string) error {
+func (n *noopTunnelClient) Start(ctx context.Context, _, _ string) error {
 	n.mu.Lock()
 	n.connected = true
 	n.mu.Unlock()

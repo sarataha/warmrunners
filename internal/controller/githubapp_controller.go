@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/sarataha/warmrunners/api/v1alpha1"
-	"github.com/sarataha/warmrunners/internal/webhook"
+	warmwebhook "github.com/sarataha/warmrunners/internal/webhook"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,7 +63,7 @@ const webhookHealthyWindow = 15 * time.Minute
 type GitHubAppReconciler struct {
 	client.Client
 	Scheme  *runtime.Scheme
-	Tunnels *webhook.TunnelRegistry
+	Tunnels *warmwebhook.TunnelRegistry
 }
 
 // +kubebuilder:rbac:groups=autoscaling.warmrunners.io,resources=githubapps,verbs=get;list;watch;update;patch
@@ -112,10 +112,17 @@ func (r *GitHubAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	switch app.Spec.Ingress.Mode {
 	case v1alpha1.IngressModeTunnel:
 		tc := r.Tunnels.Get(app.Name)
-		app.Status.WebhookHealthy = tc != nil && tc.Connected()
+		connected := tc != nil && tc.Connected()
+		app.Status.WebhookHealthy = connected
+		if connected {
+			warmwebhook.TunnelConnected.WithLabelValues(app.Name).Set(1)
+		} else {
+			warmwebhook.TunnelConnected.WithLabelValues(app.Name).Set(0)
+		}
 	case v1alpha1.IngressModeIngress:
 		app.Status.WebhookHealthy = app.Status.LastDelivery != nil &&
 			time.Since(app.Status.LastDelivery.Time) < webhookHealthyWindow
+		warmwebhook.TunnelConnected.WithLabelValues(app.Name).Set(0)
 	}
 
 	setGitHubAppCondition(&app, true, GitHubAppReasonReconciled, "")

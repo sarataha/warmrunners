@@ -22,7 +22,7 @@ type fakeTunnel struct {
 	connected bool
 }
 
-func (f *fakeTunnel) Start(ctx context.Context, relayURL string) error {
+func (f *fakeTunnel) Start(ctx context.Context, name, relayURL string) error {
 	<-ctx.Done()
 	return nil
 }
