@@ -1,0 +1,15 @@
+apiVersion: autoscaling.warmrunners.io/v1alpha1
+kind: GitHubApp
+metadata:
+  name: example-warmrunners-app
+spec:
+  appID: 123456
+  privateKeyRef:
+    name: example-warmrunners-app-key
+    key: private-key.pem
+  webhookSecretRef:
+    name: example-warmrunners-app-webhook
+    key: secret
+  ingress:
+    mode: ingress
+    hostname: warmrunners.example.io

@@ -25,4 +25,6 @@ resources:
 - warmrunnerpolicy_admin_role.yaml
 - warmrunnerpolicy_editor_role.yaml
 - warmrunnerpolicy_viewer_role.yaml
+- githubapp_editor_role.yaml
+- githubapp_viewer_role.yaml
 

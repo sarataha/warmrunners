@@ -22,6 +22,24 @@ rules:
 - apiGroups:
   - autoscaling.warmrunners.io
   resources:
+  - githubapps
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - autoscaling.warmrunners.io
+  resources:
+  - githubapps/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - autoscaling.warmrunners.io
+  resources:
   - warmrunnerpolicies
   verbs:
   - delete
