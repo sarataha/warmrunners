@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/go-logr/logr"
-	"nhooyr.io/websocket"
 )
 
 // FrameHandler is what the tunnel client dispatches decoded relay frames
@@ -127,7 +127,7 @@ func (c *tunnelClient) Start(ctx context.Context, relayURL string) error {
 		c.setConnected(true)
 		c.readLoop(ctx, conn)
 		c.setConnected(false)
-		conn.Close(websocket.StatusNormalClosure, "reconnect")
+		_ = conn.Close(websocket.StatusNormalClosure, "reconnect")
 
 		select {
 		case <-ctx.Done():

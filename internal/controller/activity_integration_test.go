@@ -390,7 +390,7 @@ func TestReconciler_ActiveUntilExtendedOnEvent(t *testing.T) {
 	}
 	var second v1alpha1.WarmRunnerPolicy
 	_ = cl.Get(context.Background(), req.NamespacedName, &second)
-	if second.Status.ActiveUntil == nil || !second.Status.ActiveUntil.Time.After(firstUntil) {
+	if second.Status.ActiveUntil == nil || !second.Status.ActiveUntil.After(firstUntil) {
 		t.Fatalf("ActiveUntil did not extend: first=%v second=%v", firstUntil, second.Status.ActiveUntil)
 	}
 }

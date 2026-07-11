@@ -94,14 +94,14 @@ func (r *GitHubAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.Tunnels.Stop(app.Name)
 	}
 
-	if err := r.checkSecret(ctx, &app, app.Spec.PrivateKeyRef); err != nil {
+	if err := r.checkSecret(ctx, app.Spec.PrivateKeyRef); err != nil {
 		setGitHubAppCondition(&app, false, GitHubAppReasonSecretMissing, err.Error())
 		if statusErr := r.Status().Update(ctx, &app); statusErr != nil {
 			return ctrl.Result{}, statusErr
 		}
 		return ctrl.Result{RequeueAfter: secretMissingRequeue}, nil
 	}
-	if err := r.checkSecret(ctx, &app, app.Spec.WebhookSecretRef); err != nil {
+	if err := r.checkSecret(ctx, app.Spec.WebhookSecretRef); err != nil {
 		setGitHubAppCondition(&app, false, GitHubAppReasonSecretMissing, err.Error())
 		if statusErr := r.Status().Update(ctx, &app); statusErr != nil {
 			return ctrl.Result{}, statusErr
@@ -129,7 +129,7 @@ func (r *GitHubAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 // checkSecret verifies the Secret referenced by ref exists. Namespace
 // resolution: ref.Namespace when set, otherwise the manager's own namespace
 // (POD_NAMESPACE, falling back to defaultPodNamespace).
-func (r *GitHubAppReconciler) checkSecret(ctx context.Context, app *v1alpha1.GitHubApp, ref v1alpha1.SecretKeyRef) error {
+func (r *GitHubAppReconciler) checkSecret(ctx context.Context, ref v1alpha1.SecretKeyRef) error {
 	ns := ref.Namespace
 	if ns == "" {
 		ns = podNamespace()

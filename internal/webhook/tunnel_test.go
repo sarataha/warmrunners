@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/go-logr/logr"
-	"nhooyr.io/websocket"
 )
 
 // fakeHandler is a test FrameHandler that records every call.
@@ -84,7 +84,7 @@ func TestTunnelClient_HandleFrameCalled(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close(websocket.StatusNormalClosure, "")
+		defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 		_ = sendFrame(r.Context(), conn, "push", "d1", "sig1", "123", json.RawMessage(`{"k":"v"}`))
 		// Keep the connection open briefly so the client can read the frame.
 		time.Sleep(200 * time.Millisecond)
@@ -140,13 +140,13 @@ func TestTunnelClient_ReconnectsOnServerClose(t *testing.T) {
 			// a reconnect.
 			_ = sendFrame(r.Context(), conn, "push", "d1", "sig1", "123", json.RawMessage(`{"n":1}`))
 			time.Sleep(20 * time.Millisecond)
-			conn.Close(websocket.StatusNormalClosure, "bye")
+			_ = conn.Close(websocket.StatusNormalClosure, "bye")
 			return
 		}
 
 		// Second (reconnected) connection: send a second frame and hold
 		// briefly.
-		defer conn.Close(websocket.StatusNormalClosure, "")
+		defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 		_ = sendFrame(r.Context(), conn, "push", "d2", "sig2", "123", json.RawMessage(`{"n":2}`))
 		time.Sleep(200 * time.Millisecond)
 	}))
@@ -179,7 +179,7 @@ func TestTunnelClient_ConnectedTransitions(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close(websocket.StatusNormalClosure, "")
+		defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 		<-r.Context().Done()
 	}))
 	defer srv.Close()
