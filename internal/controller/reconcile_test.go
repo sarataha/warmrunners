@@ -356,6 +356,9 @@ func (failStatusWriter) Update(context.Context, client.Object, ...client.SubReso
 func (failStatusWriter) Patch(context.Context, client.Object, client.Patch, ...client.SubResourcePatchOption) error {
 	return apierrors.NewConflict(schema.GroupResource{}, "p", context.DeadlineExceeded)
 }
+func (failStatusWriter) Apply(context.Context, runtime.ApplyConfiguration, ...client.SubResourceApplyOption) error {
+	return apierrors.NewConflict(schema.GroupResource{}, "p", context.DeadlineExceeded)
+}
 
 func TestReconcile_StatusUpdateError_Surfaced(t *testing.T) {
 	sch := runtime.NewScheme()

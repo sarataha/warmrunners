@@ -29,7 +29,11 @@ var (
 	GroupVersion = schema.GroupVersion{Group: "autoscaling.warmrunners.io", Version: "v1alpha1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
-	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
+	// controller-runtime v0.24 deprecated scheme.Builder in favour of the
+	// leaner apimachinery runtime.SchemeBuilder, but the kubebuilder scaffold
+	// (and every existing types file's init() Register call) still targets
+	// this helper. Migration is a wider refactor tracked separately.
+	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion} //nolint:staticcheck // kubebuilder scaffold, deferred migration
 
 	// AddToScheme adds the types in this group-version to the given scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
