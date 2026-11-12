@@ -24,7 +24,7 @@ service into the `warmrunners-system` namespace.
 
 ```sh
 helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners \
-  --version 0.3.0 \
+  --version 0.5.0 \
   --namespace warmrunners-system \
   --create-namespace
 ```
@@ -48,7 +48,7 @@ The chart README packaged with the release lists every value.
 ### Raw manifests (kubectl)
 
 ```sh
-kubectl apply -f https://github.com/sarataha/warmrunners/releases/download/v0.3.0/install.yaml
+kubectl apply -f https://github.com/sarataha/warmrunners/releases/download/v0.5.0/install.yaml
 ```
 
 `install.yaml` is the same content the Helm chart renders, with default values.
@@ -78,7 +78,7 @@ spec:
   chart:
     spec:
       chart: warmrunners
-      version: "0.3.0"
+      version: "0.5.0"
       sourceRef:
         kind: HelmRepository
         name: warmrunners
@@ -103,7 +103,7 @@ spec:
   source:
     repoURL: ghcr.io/sarataha/charts
     chart: warmrunners
-    targetRevision: "0.3.0"
+    targetRevision: "0.5.0"
     helm:
       values: |
         controllerManager:
@@ -123,8 +123,8 @@ For development or unreleased builds:
 ```sh
 git clone https://github.com/sarataha/warmrunners.git
 cd warmrunners
-git checkout v0.3.0
-make deploy IMG=ghcr.io/sarataha/warmrunners:v0.3.0
+git checkout v0.5.0
+make deploy IMG=ghcr.io/sarataha/warmrunners:v0.5.0
 ```
 
 ## Verify the install
@@ -147,7 +147,7 @@ Create a GitHub token Secret and a sample policy:
 kubectl create secret generic gh-token \
   --from-literal=token=ghp_xxx \
   --namespace default
-kubectl apply -f https://raw.githubusercontent.com/sarataha/warmrunners/v0.3.0/examples/policy-arc.yaml
+kubectl apply -f https://raw.githubusercontent.com/sarataha/warmrunners/v0.5.0/examples/policy-arc.yaml
 ```
 
 Watch the status fields populate:
@@ -165,14 +165,14 @@ Helm:
 
 ```sh
 helm upgrade warmrunners oci://ghcr.io/sarataha/charts/warmrunners \
-  --version 0.3.0 \
+  --version 0.5.0 \
   --namespace warmrunners-system
 ```
 
 kubectl:
 
 ```sh
-kubectl apply -f https://github.com/sarataha/warmrunners/releases/download/v0.3.0/install.yaml
+kubectl apply -f https://github.com/sarataha/warmrunners/releases/download/v0.5.0/install.yaml
 ```
 
 Flux and Argo CD reconcile automatically once you bump `version` /
@@ -195,7 +195,7 @@ place. Delete it explicitly to remove every policy.
 kubectl:
 
 ```sh
-kubectl delete -f https://github.com/sarataha/warmrunners/releases/download/v0.3.0/install.yaml
+kubectl delete -f https://github.com/sarataha/warmrunners/releases/download/v0.5.0/install.yaml
 ```
 
 ## Next steps

@@ -44,7 +44,7 @@ See [`examples/`](examples/) for full policies.
 
 ```sh
 helm install warmrunners oci://ghcr.io/sarataha/charts/warmrunners \
-  --version 0.3.0 --namespace warmrunners-system --create-namespace
+  --version 0.5.0 --namespace warmrunners-system --create-namespace
 ```
 
 Then create a `Secret` with a GitHub token and a `WarmRunnerPolicy` (see [`examples/`](examples/)).
@@ -68,7 +68,7 @@ verification commands. Report vulnerabilities via [SECURITY.md](SECURITY.md).
 
 ## Roadmap
 
-* **v0.4.0**: validating admission webhook (cross-policy conflict detection); richer queue rules.
+* **next**: validating admission webhook (cross-policy conflict detection); richer queue rules.
 * **later**: extended predictor mechanisms (`workflow_run` chains, `environment` approval gates); forecasting from historical job data.
 
 ## Contributing
